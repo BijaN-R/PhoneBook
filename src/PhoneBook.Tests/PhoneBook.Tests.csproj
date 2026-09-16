@@ -1,0 +1,28 @@
+<!-- FILE: src/PhoneBook.Tests/PhoneBook.Tests.csproj -->
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <LangVersion>14</LangVersion>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <IsPackable>false</IsPackable>
+    <IsTestProject>true</IsTestProject>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\PhoneBook.Core\PhoneBook.Core.csproj" />
+    <ProjectReference Include="..\PhoneBook.Export.OpenXml\PhoneBook.Export.OpenXml.csproj" />
+    <ProjectReference Include="..\PhoneBook.Export.Image\PhoneBook.Export.Image.csproj" />
+    <ProjectReference Include="..\PhoneBook.Infrastructure\PhoneBook.Infrastructure.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.NET.Test.Sdk" Version="18.10.0" />
+    <PackageReference Include="xunit" Version="2.9.3" />
+    <PackageReference Include="xunit.runner.visualstudio" Version="4.0.0">
+      <PrivateAssets>all</PrivateAssets>
+      <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
+    </PackageReference>
+    <PackageReference Include="FluentAssertions" Version="8.10.0" />
+  </ItemGroup>
+</Project>

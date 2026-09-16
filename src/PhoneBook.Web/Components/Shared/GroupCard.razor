@@ -1,0 +1,31 @@
+@* FILE: src/PhoneBook.Web/Components/Shared/GroupCard.razor *@
+<article class="group-card">
+    <header style="font-size: @Pt(Settings.GroupHeaderFontSizePt)">@Display(Group.Title)</header>
+    @foreach (PhoneBookEntry entry in Group.Entries.OrderBy(item => item.DisplayOrder).ThenBy(item => item.Id))
+    {
+        <div class="group-row" style="font-size: @Pt(Settings.DefaultFontSizePt)">
+            <span class="entry-extension">@Display(entry.Extension ?? string.Empty)</span>
+            <span class="entry-name">@Display(entry.Name)</span>
+        </div>
+    }
+</article>
+
+@code {
+    [Parameter, EditorRequired]
+    public PhoneBookGroup Group { get; set; } = null!;
+
+    [Parameter, EditorRequired]
+    public AppSettings Settings { get; set; } = null!;
+
+    private string Display(string value)
+    {
+        return Settings.UsePersianDigits
+            ? PersianTextNormalizer.ToPersianDigits(value)
+            : value;
+    }
+
+    private static string Pt(double value)
+    {
+        return $"{value.ToString("0.##", CultureInfo.InvariantCulture)}pt";
+    }
+}

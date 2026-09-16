@@ -1,0 +1,17 @@
+@* FILE: src/PhoneBook.Web/Components/Routes.razor *@
+<Router AppAssembly="typeof(App).Assembly">
+    <Found Context="routeData">
+        <RouteView RouteData="routeData" DefaultLayout="typeof(Layout.MainLayout)" />
+        <FocusOnNavigate RouteData="routeData" Selector="h1" />
+    </Found>
+    <NotFound>
+        <LayoutView Layout="typeof(Layout.MainLayout)">
+            <PageTitle>صفحه پیدا نشد</PageTitle>
+            <section class="panel empty-state">
+                <h1>صفحه پیدا نشد</h1>
+                <p>نشانی واردشده در دفترچه تلفن وجود ندارد.</p>
+                <a class="button-link" href="/">بازگشت به داشبورد</a>
+            </section>
+        </LayoutView>
+    </NotFound>
+</Router>

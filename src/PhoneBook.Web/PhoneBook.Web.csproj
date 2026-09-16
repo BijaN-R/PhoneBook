@@ -1,0 +1,24 @@
+<!-- FILE: src/PhoneBook.Web/PhoneBook.Web.csproj -->
+<Project Sdk="Microsoft.NET.Sdk.Web">
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <LangVersion>14</LangVersion>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <OutputType Condition="!Exists('Program.cs')">Library</OutputType>
+  </PropertyGroup>
+  <ItemGroup>
+    <PackageReference Include="Microsoft.EntityFrameworkCore.Tools" Version="10.0.12">
+      <PrivateAssets>all</PrivateAssets>
+      <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
+    </PackageReference>
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\PhoneBook.Domain\PhoneBook.Domain.csproj" />
+    <ProjectReference Include="..\PhoneBook.Infrastructure\PhoneBook.Infrastructure.csproj" />
+    <ProjectReference Include="..\PhoneBook.Core\PhoneBook.Core.csproj" />
+    <ProjectReference Include="..\PhoneBook.Export.OpenXml\PhoneBook.Export.OpenXml.csproj" />
+    <ProjectReference Include="..\PhoneBook.Export.Image\PhoneBook.Export.Image.csproj" />
+  </ItemGroup>
+</Project>

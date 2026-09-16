@@ -1,0 +1,343 @@
+@* FILE: src/PhoneBook.Web/Components/Pages/Dashboard.razor *@
+@page "/"
+@rendermode InteractiveServer
+@implements IDisposable
+@inject LiveSearchService SearchService
+@inject PhoneBookRepository Repository
+@inject AppSettingsService SettingsService
+@inject LayoutEngine LayoutEngine
+@inject ITextMeasurer TextMeasurer
+@inject OpenXmlPhoneBookGenerator OpenXmlGenerator
+@inject SkiaExportService ImageExportService
+@inject IJSRuntime JS
+
+<PageTitle>داشبورد دفترچه تلفن</PageTitle>
+
+<section class="page-heading">
+    <div>
+        <span class="eyebrow">دسترسی سریع</span>
+        <h1>دفترچه تلفن شرکت</h1>
+        <p>جست‌وجوی همکاران، فیلتر گروه‌ها و دریافت نسخه آماده چاپ.</p>
+    </div>
+    @if (_layout is not null)
+    {
+        <span class="page-count-badge">@PersianTextNormalizer.ToPersianDigits(_layout.Pages.Count.ToString(CultureInfo.InvariantCulture)) صفحه</span>
+    }
+</section>
+
+<section class="panel dashboard-tools">
+    <div class="search-field">
+        <label for="directory-search">جست‌وجو</label>
+        <input id="directory-search"
+               type="search"
+               autocomplete="off"
+               placeholder="نام، گروه یا شماره داخلی"
+               @bind="_query"
+               @bind:event="oninput"
+               @bind:after="OnSearch" />
+    </div>
+    <div class="filter-field">
+        <label for="group-filter">گروه</label>
+        <select id="group-filter" @bind="_selectedGroupId" @bind:after="ApplyFilters">
+            <option value="0">همه گروه‌ها</option>
+            @foreach (PhoneBookGroup group in _groups)
+            {
+                <option value="@group.Id">@group.Title</option>
+            }
+        </select>
+    </div>
+</section>
+
+<section class="dashboard-grid">
+    <div class="panel results-panel">
+        <div class="section-title">
+            <div>
+                <span class="eyebrow">نتایج زنده</span>
+                <h2>@PersianTextNormalizer.ToPersianDigits(_visibleHits.Count.ToString(CultureInfo.InvariantCulture)) مورد</h2>
+            </div>
+        </div>
+
+        @if (_loading)
+        {
+            <p class="muted">در حال بارگذاری…</p>
+        }
+        else if (_visibleHits.Count == 0)
+        {
+            <div class="empty-state compact">
+                <strong>نتیجه‌ای پیدا نشد</strong>
+                <span>عبارت کوتاه‌تری وارد کنید یا فیلتر گروه را تغییر دهید.</span>
+            </div>
+        }
+        else
+        {
+            <div class="result-list">
+                @foreach (SearchHit hit in _visibleHits)
+                {
+                    <article class="search-result" @key="hit">
+                        <div>
+                            <strong>@Highlight(hit.Name)</strong>
+                            <span>@Highlight(hit.GroupTitle)</span>
+                        </div>
+                        <bdi class="extension-pill">@Highlight(hit.Extension ?? "—")</bdi>
+                    </article>
+                }
+            </div>
+        }
+    </div>
+
+    <aside class="panel export-panel">
+        <span class="eyebrow">خروجی چاپ</span>
+        <h2>دریافت دفترچه</h2>
+        <p>همه گروه‌های فعال با چیدمان سه‌ستونه در فایل خروجی قرار می‌گیرند.</p>
+
+        <div class="export-actions">
+            <button class="button primary" disabled="@_exporting" @onclick="ExportDocxAsync">دانلود DOCX</button>
+            <button class="button" disabled="@_exporting" @onclick="ExportPdfAsync">دانلود PDF</button>
+
+            @if ((_layout?.Pages.Count ?? 0) <= 1)
+            {
+                <button class="button" disabled="@_exporting" @onclick="() => ExportPngPageAsync(0)">دانلود PNG</button>
+            }
+            else
+            {
+                <details class="download-menu">
+                    <summary class="button">گزینه‌های PNG</summary>
+                    <div>
+                        @for (int index = 0; index < _layout!.Pages.Count; index++)
+                        {
+                            int pageIndex = index;
+                            <button disabled="@_exporting" @onclick="() => ExportPngPageAsync(pageIndex)">
+                                دانلود PNG – صفحه @PersianTextNormalizer.ToPersianDigits((pageIndex + 1).ToString(CultureInfo.InvariantCulture))
+                            </button>
+                        }
+                        <button disabled="@_exporting" @onclick="ExportAllPngAsync">دانلود PNG – همه صفحات (ZIP)</button>
+                    </div>
+                </details>
+            }
+        </div>
+
+        @if (_exporting)
+        {
+            <p class="status-message">در حال ساخت فایل…</p>
+        }
+        @if (!string.IsNullOrWhiteSpace(_message))
+        {
+            <p class="status-message @(_hasError ? "error" : "success")">@_message</p>
+        }
+    </aside>
+</section>
+
+@code {
+    private readonly List<SearchHit> _visibleHits = [];
+    private IReadOnlyList<PhoneBookGroup> _groups = [];
+    private IReadOnlyList<PhoneBookGroup> _exportGroups = [];
+    private DocumentHeader? _header;
+    private AppSettings? _settings;
+    private LayoutResult? _layout;
+    private CancellationTokenSource? _searchCts;
+    private string _query = string.Empty;
+    private int _selectedGroupId;
+    private bool _loading = true;
+    private bool _exporting;
+    private bool _hasError;
+    private string? _message;
+
+    protected override async Task OnInitializedAsync()
+    {
+        try
+        {
+            _exportGroups = await Repository.GetGroupsAsync(activeOnly: true);
+            _groups = _exportGroups;
+            _header = await Repository.GetDocumentHeaderAsync();
+            _settings = await SettingsService.GetAsync();
+            _layout = LayoutEngine.CreateLayout(_exportGroups, _settings, TextMeasurer);
+            ApplyFilters();
+        }
+        catch (Exception exception)
+        {
+            SetError(exception);
+        }
+        finally
+        {
+            _loading = false;
+        }
+    }
+
+    private async Task OnSearch()
+    {
+        _searchCts?.Cancel();
+        _searchCts?.Dispose();
+        _searchCts = new CancellationTokenSource();
+        CancellationToken token = _searchCts.Token;
+
+        try
+        {
+            await Task.Delay(150, token);
+            ApplyFilters();
+        }
+        catch (OperationCanceledException) when (token.IsCancellationRequested)
+        {
+        }
+    }
+
+    private void ApplyFilters()
+    {
+        IEnumerable<SearchHit> hits = SearchService.Search(_query);
+        if (_selectedGroupId != 0)
+        {
+            hits = hits.Where(hit => hit.GroupId == _selectedGroupId);
+        }
+
+        _visibleHits.Clear();
+        _visibleHits.AddRange(hits);
+    }
+
+    private async Task ExportDocxAsync()
+    {
+        await RunExportAsync(async () =>
+        {
+            EnsureExportState();
+            byte[] bytes = await OpenXmlGenerator.GenerateAsync(
+                _header!,
+                _exportGroups,
+                _layout!,
+                _settings!);
+            await DownloadAsync("phonebook.docx", "application/vnd.openxmlformats-officedocument.wordprocessingml.document", bytes);
+        });
+    }
+
+    private async Task ExportPdfAsync()
+    {
+        await RunExportAsync(async () =>
+        {
+            EnsureExportState();
+            byte[] bytes = await ImageExportService.ExportPdfAsync(_header!, _layout!);
+            await DownloadAsync("phonebook.pdf", "application/pdf", bytes);
+        });
+    }
+
+    private async Task ExportPngPageAsync(int pageIndex)
+    {
+        await RunExportAsync(async () =>
+        {
+            EnsureExportState();
+            IReadOnlyList<byte[]> pages = await ImageExportService.ExportPngPagesAsync(_header!, _layout!);
+            if (pageIndex < 0 || pageIndex >= pages.Count)
+            {
+                throw new ArgumentOutOfRangeException(nameof(pageIndex));
+            }
+
+            await DownloadAsync($"phonebook-page-{pageIndex + 1}.png", "image/png", pages[pageIndex]);
+        });
+    }
+
+    private async Task ExportAllPngAsync()
+    {
+        await RunExportAsync(async () =>
+        {
+            EnsureExportState();
+            IReadOnlyList<byte[]> pages = await ImageExportService.ExportPngPagesAsync(_header!, _layout!);
+            using MemoryStream stream = new();
+            using (ZipArchive archive = new(stream, ZipArchiveMode.Create, leaveOpen: true))
+            {
+                for (int index = 0; index < pages.Count; index++)
+                {
+                    ZipArchiveEntry entry = archive.CreateEntry(
+                        $"phonebook-page-{index + 1}.png",
+                        CompressionLevel.Fastest);
+                    await using Stream entryStream = entry.Open();
+                    await entryStream.WriteAsync(pages[index]);
+                }
+            }
+
+            await DownloadAsync("phonebook-pages.zip", "application/zip", stream.ToArray());
+        });
+    }
+
+    private async Task RunExportAsync(Func<Task> export)
+    {
+        if (_exporting)
+        {
+            return;
+        }
+
+        _exporting = true;
+        _message = null;
+        _hasError = false;
+        try
+        {
+            await export();
+            _message = "فایل آماده و دریافت شد.";
+        }
+        catch (Exception exception)
+        {
+            SetError(exception);
+        }
+        finally
+        {
+            _exporting = false;
+        }
+    }
+
+    private void EnsureExportState()
+    {
+        if (_header is null || _settings is null || _layout is null)
+        {
+            throw new InvalidOperationException("اطلاعات دفترچه هنوز آماده نشده است.");
+        }
+
+        if (_layout.LayoutFailed)
+        {
+            throw new InvalidOperationException(_layout.FailureReason ?? "چیدمان قابل تولید نیست.");
+        }
+    }
+
+    private async Task DownloadAsync(string fileName, string contentType, byte[] bytes)
+    {
+        await JS.InvokeVoidAsync(
+            "phoneBookDownload",
+            fileName,
+            contentType,
+            Convert.ToBase64String(bytes));
+    }
+
+    private MarkupString Highlight(string text)
+    {
+        string encodedText = HtmlEncoder.Default.Encode(text);
+        if (string.IsNullOrWhiteSpace(_query))
+        {
+            return new MarkupString(encodedText);
+        }
+
+        int index = text.IndexOf(_query, StringComparison.CurrentCultureIgnoreCase);
+        int matchLength = _query.Length;
+        if (index < 0)
+        {
+            string normalizedText = PersianTextNormalizer.NormalizeForSearch(text);
+            string normalizedQuery = PersianTextNormalizer.NormalizeForSearch(_query);
+            index = normalizedText.IndexOf(normalizedQuery, StringComparison.Ordinal);
+            matchLength = normalizedQuery.Length;
+            if (index < 0 || index + matchLength > text.Length)
+            {
+                return new MarkupString(encodedText);
+            }
+        }
+
+        string before = HtmlEncoder.Default.Encode(text[..index]);
+        string match = HtmlEncoder.Default.Encode(text.Substring(index, matchLength));
+        string after = HtmlEncoder.Default.Encode(text[(index + matchLength)..]);
+        return new MarkupString($"{before}<mark>{match}</mark>{after}");
+    }
+
+    private void SetError(Exception exception)
+    {
+        _hasError = true;
+        _message = exception.Message;
+    }
+
+    public void Dispose()
+    {
+        _searchCts?.Cancel();
+        _searchCts?.Dispose();
+    }
+}

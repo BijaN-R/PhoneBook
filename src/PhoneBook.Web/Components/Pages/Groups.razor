@@ -1,0 +1,195 @@
+@* FILE: src/PhoneBook.Web/Components/Pages/Groups.razor *@
+@page "/groups"
+@rendermode InteractiveServer
+@inject PhoneBookRepository Repository
+@inject LiveSearchService SearchService
+
+<PageTitle>مدیریت گروه‌ها</PageTitle>
+
+<section class="page-heading">
+    <div>
+        <span class="eyebrow">ساختار دفترچه</span>
+        <h1>گروه‌ها</h1>
+        <p>عنوان، اولویت، ترتیب نمایش و ستون پیشنهادی هر بخش را مدیریت کنید.</p>
+    </div>
+</section>
+
+<section class="panel form-panel">
+    <div class="section-title">
+        <div>
+            <span class="eyebrow">گروه تازه</span>
+            <h2>افزودن گروه</h2>
+        </div>
+    </div>
+    <div class="form-grid group-form-grid">
+        <label>عنوان<input @bind="_newGroup.Title" /></label>
+        <label>اولویت<input type="number" min="0" @bind="_newGroup.Priority" /></label>
+        <label>ترتیب نمایش<input type="number" min="0" @bind="_newGroup.DisplayOrder" /></label>
+        <label>
+            ستون پیشنهادی
+            <select @bind="_newGroup.PreferredColumn">
+                <option value="">خودکار</option>
+                <option value="Right">راست</option>
+                <option value="Middle">میانی</option>
+                <option value="Left">چپ</option>
+            </select>
+        </label>
+        <label class="check-field"><input type="checkbox" @bind="_newGroup.Required" /> الزامی</label>
+        <label class="check-field"><input type="checkbox" @bind="_newGroup.KeepTogether" /> یکپارچه بماند</label>
+        <label class="check-field"><input type="checkbox" @bind="_newGroup.IsActive" /> فعال</label>
+        <button class="button primary" disabled="@_busy" @onclick="AddAsync">افزودن گروه</button>
+    </div>
+</section>
+
+<section class="panel table-panel">
+    <div class="section-title">
+        <div>
+            <span class="eyebrow">@PersianTextNormalizer.ToPersianDigits(_groups.Count.ToString(CultureInfo.InvariantCulture)) گروه</span>
+            <h2>فهرست گروه‌ها</h2>
+        </div>
+    </div>
+
+    <div class="table-scroll">
+        <table>
+            <thead>
+                <tr>
+                    <th>عنوان</th>
+                    <th>اولویت</th>
+                    <th>ترتیب</th>
+                    <th>ستون</th>
+                    <th>الزامی</th>
+                    <th>یکپارچه</th>
+                    <th>فعال</th>
+                    <th>عملیات</th>
+                </tr>
+            </thead>
+            <tbody>
+                @foreach (PhoneBookGroup group in _groups)
+                {
+                    <tr @key="group.Id">
+                        <td><input aria-label="عنوان گروه" @bind="group.Title" /></td>
+                        <td><input class="number-input" type="number" min="1" @bind="group.Priority" /></td>
+                        <td><input class="number-input" type="number" min="1" @bind="group.DisplayOrder" /></td>
+                        <td>
+                            <select aria-label="ستون پیشنهادی" @bind="group.PreferredColumn">
+                                <option value="">خودکار</option>
+                                <option value="Right">راست</option>
+                                <option value="Middle">میانی</option>
+                                <option value="Left">چپ</option>
+                            </select>
+                        </td>
+                        <td><input aria-label="الزامی" type="checkbox" @bind="group.Required" /></td>
+                        <td><input aria-label="یکپارچه" type="checkbox" @bind="group.KeepTogether" /></td>
+                        <td><input aria-label="فعال" type="checkbox" @bind="group.IsActive" /></td>
+                        <td class="row-actions">
+                            <button class="text-button" disabled="@_busy" @onclick="() => SaveAsync(group)">ذخیره</button>
+                            <button class="text-button danger" disabled="@_busy" @onclick="() => DeleteAsync(group.Id)">حذف</button>
+                        </td>
+                    </tr>
+                }
+            </tbody>
+        </table>
+    </div>
+</section>
+
+@if (!string.IsNullOrWhiteSpace(_message))
+{
+    <p class="toast @(_hasError ? "error" : "success")">@_message</p>
+}
+
+@code {
+    private readonly PhoneBookGroup _newGroup = new()
+    {
+        Required = true,
+        KeepTogether = true,
+        IsActive = true
+    };
+    private IReadOnlyList<PhoneBookGroup> _groups = [];
+    private bool _busy;
+    private bool _hasError;
+    private string? _message;
+
+    protected override Task OnInitializedAsync()
+    {
+        return ReloadAsync();
+    }
+
+    private async Task AddAsync()
+    {
+        if (string.IsNullOrWhiteSpace(_newGroup.Title))
+        {
+            ShowError("عنوان گروه را وارد کنید.");
+            return;
+        }
+
+        await RunMutationAsync(async () =>
+        {
+            await Repository.AddGroupAsync(_newGroup);
+            _newGroup.Title = string.Empty;
+            _newGroup.Priority = 0;
+            _newGroup.DisplayOrder = 0;
+            _newGroup.PreferredColumn = null;
+            await RefreshAndReloadAsync();
+        }, "گروه افزوده شد.");
+    }
+
+    private Task SaveAsync(PhoneBookGroup group)
+    {
+        return RunMutationAsync(async () =>
+        {
+            await Repository.UpdateGroupAsync(group);
+            await RefreshAndReloadAsync();
+        }, "تغییرات گروه ذخیره شد.");
+    }
+
+    private Task DeleteAsync(int id)
+    {
+        return RunMutationAsync(async () =>
+        {
+            await Repository.DeleteGroupAsync(id);
+            await RefreshAndReloadAsync();
+        }, "گروه و داخلی‌های آن حذف شدند.");
+    }
+
+    private async Task RefreshAndReloadAsync()
+    {
+        await SearchService.RefreshAsync();
+        await ReloadAsync();
+    }
+
+    private async Task ReloadAsync()
+    {
+        _groups = await Repository.GetGroupsAsync();
+    }
+
+    private async Task RunMutationAsync(Func<Task> mutation, string successMessage)
+    {
+        if (_busy)
+        {
+            return;
+        }
+
+        _busy = true;
+        _message = null;
+        try
+        {
+            await mutation();
+            _hasError = false;
+            _message = successMessage;
+        }
+        catch (Exception exception)
+        {
+            ShowError(exception.Message);
+        }
+        finally
+        {
+            _busy = false;
+        }
+    }
+
+    private void ShowError(string message)
+    {
+        _hasError = true;
+        _message = message;
+    }
+}

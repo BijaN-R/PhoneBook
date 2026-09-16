@@ -1,0 +1,25 @@
+@* FILE: src/PhoneBook.Web/Components/Layout/MainLayout.razor *@
+@inherits LayoutComponentBase
+
+<div class="app-shell">
+    <header class="topbar">
+        <a class="brand" href="/">
+            <span class="brand-mark" aria-hidden="true">ر</span>
+            <span>
+                <strong>دفترچه تلفن</strong>
+                <small>رهیاب رایانه گستر</small>
+            </span>
+        </a>
+        <nav aria-label="ناوبری اصلی">
+            <NavLink href="/" Match="NavLinkMatch.All">داشبورد</NavLink>
+            <NavLink href="groups">گروه‌ها</NavLink>
+            <NavLink href="entries">داخلی‌ها</NavLink>
+            <NavLink href="settings">تنظیمات</NavLink>
+            <NavLink href="preview">پیش‌نمایش</NavLink>
+        </nav>
+    </header>
+
+    <main class="main-content">
+        @Body
+    </main>
+</div>

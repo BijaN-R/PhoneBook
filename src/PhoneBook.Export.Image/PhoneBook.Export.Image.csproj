@@ -1,0 +1,20 @@
+<!-- FILE: src/PhoneBook.Export.Image/PhoneBook.Export.Image.csproj -->
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <LangVersion>14</LangVersion>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\PhoneBook.Core\PhoneBook.Core.csproj" />
+    <ProjectReference Include="..\PhoneBook.Domain\PhoneBook.Domain.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="SkiaSharp" Version="4.152.0" />
+    <PackageReference Include="SkiaSharp.NativeAssets.Linux" Version="4.152.0" />
+    <PackageReference Include="SkiaSharp.NativeAssets.Win32" Version="4.152.0" />
+  </ItemGroup>
+</Project>

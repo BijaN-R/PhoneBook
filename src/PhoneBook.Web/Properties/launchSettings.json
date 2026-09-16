@@ -1,0 +1,12 @@
+{
+  "profiles": {
+    "PhoneBook.Web": {
+      "commandName": "Project",
+      "launchBrowser": true,
+      "environmentVariables": {
+        "ASPNETCORE_ENVIRONMENT": "Development"
+      },
+      "applicationUrl": "https://localhost:34646;http://localhost:34647"
+    }
+  }
+}

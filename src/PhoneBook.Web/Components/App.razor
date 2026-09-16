@@ -1,0 +1,25 @@
+@* FILE: src/PhoneBook.Web/Components/App.razor *@
+<!DOCTYPE html>
+<html dir="rtl" lang="fa">
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <base href="/" />
+    <link rel="stylesheet" href="css/app.css" />
+    <HeadOutlet />
+</head>
+<body>
+    <Routes />
+    <script>
+        window.phoneBookDownload = (fileName, contentType, base64Data) => {
+            const link = document.createElement('a');
+            link.download = fileName;
+            link.href = `data:${contentType};base64,${base64Data}`;
+            document.body.appendChild(link);
+            link.click();
+            link.remove();
+        };
+    </script>
+    <script src="_framework/blazor.web.js"></script>
+</body>
+</html>

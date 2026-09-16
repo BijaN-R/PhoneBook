@@ -1,0 +1,156 @@
+@* FILE: src/PhoneBook.Web/Components/Pages/Settings.razor *@
+@page "/settings"
+@rendermode InteractiveServer
+@inject AppSettingsService SettingsService
+
+<PageTitle>تنظیمات دفترچه</PageTitle>
+
+<section class="page-heading">
+    <div>
+        <span class="eyebrow">صفحه و تایپوگرافی</span>
+        <h1>تنظیمات</h1>
+        <p>ابعاد، فاصله‌ها و اندازه قلم مستقیماً بر چیدمان خروجی اثر می‌گذارند.</p>
+    </div>
+</section>
+
+@if (_settings is null)
+{
+    <section class="panel"><p class="muted">در حال بارگذاری تنظیمات…</p></section>
+}
+else
+{
+    <section class="settings-sections">
+        <div class="panel form-panel">
+            <div class="section-title"><h2>ابعاد صفحه</h2></div>
+            <div class="form-grid settings-grid">
+                <label>عرض صفحه (میلی‌متر)<InputNumber @bind-Value="_settings.PageWidthMm" /></label>
+                <label>ارتفاع صفحه (میلی‌متر)<InputNumber @bind-Value="_settings.PageHeightMm" /></label>
+                <label>حاشیه بالا<InputNumber @bind-Value="_settings.MarginTopMm" /></label>
+                <label>حاشیه پایین<InputNumber @bind-Value="_settings.MarginBottomMm" /></label>
+                <label>حاشیه راست<InputNumber @bind-Value="_settings.MarginRightMm" /></label>
+                <label>حاشیه چپ<InputNumber @bind-Value="_settings.MarginLeftMm" /></label>
+                <label>فاصله گروه‌ها<InputNumber @bind-Value="_settings.GroupGapMm" /></label>
+                <label>فاصله داخلی سلول<InputNumber @bind-Value="_settings.CellPaddingMm" /></label>
+            </div>
+        </div>
+
+        <div class="panel form-panel">
+            <div class="section-title"><h2>قلم و نمایش</h2></div>
+            <div class="form-grid settings-grid">
+                <label>خانواده قلم<InputText @bind-Value="_settings.PrimaryFontFamily" /></label>
+                <label>اندازه متن<InputNumber @bind-Value="_settings.DefaultFontSizePt" /></label>
+                <label>اندازه عنوان صفحه<InputNumber @bind-Value="_settings.HeaderFontSizePt" /></label>
+                <label>اندازه عنوان گروه<InputNumber @bind-Value="_settings.GroupHeaderFontSizePt" /></label>
+                <label>کمینه اندازه قلم<InputNumber @bind-Value="_settings.MinFontSizePt" /></label>
+                <label>تعداد اولویت‌های بالا<input type="number" value="3" disabled /></label>
+                <label class="check-field wide"><InputCheckbox @bind-Value="_settings.UsePersianDigits" /> نمایش اعداد فارسی در خروجی</label>
+            </div>
+        </div>
+    </section>
+
+    <div class="sticky-actions">
+        <button class="button primary" disabled="@_saving" @onclick="SaveAsync">ذخیره تنظیمات</button>
+        @if (!string.IsNullOrWhiteSpace(_message))
+        {
+            <span class="status-message @(_hasError ? "error" : "success")">@_message</span>
+        }
+    </div>
+}
+
+@code {
+    private AppSettings? _settings;
+    private bool _saving;
+    private bool _hasError;
+    private string? _message;
+
+    protected override async Task OnInitializedAsync()
+    {
+        _settings = await SettingsService.GetAsync();
+    }
+
+    private async Task SaveAsync()
+    {
+        if (_settings is null || _saving)
+        {
+            return;
+        }
+
+        string? validationError = Validate(_settings);
+        if (validationError is not null)
+        {
+            _hasError = true;
+            _message = validationError;
+            return;
+        }
+
+        _saving = true;
+        _message = null;
+        try
+        {
+            _settings.PriorityTopLimit = 3;
+            await SettingsService.UpdateAsync(_settings);
+            _hasError = false;
+            _message = "تنظیمات ذخیره شد.";
+        }
+        catch (Exception exception)
+        {
+            _hasError = true;
+            _message = exception.Message;
+        }
+        finally
+        {
+            _saving = false;
+        }
+    }
+
+    private static string? Validate(AppSettings settings)
+    {
+        double[] positiveValues =
+        [
+            settings.PageWidthMm,
+            settings.PageHeightMm,
+            settings.MinFontSizePt,
+            settings.DefaultFontSizePt,
+            settings.HeaderFontSizePt,
+            settings.GroupHeaderFontSizePt
+        ];
+        if (positiveValues.Any(value => !double.IsFinite(value) || value <= 0))
+        {
+            return "ابعاد صفحه و اندازه‌های قلم باید بزرگ‌تر از صفر باشند.";
+        }
+
+        double[] nonNegativeValues =
+        [
+            settings.MarginTopMm,
+            settings.MarginBottomMm,
+            settings.MarginLeftMm,
+            settings.MarginRightMm,
+            settings.GroupGapMm,
+            settings.CellPaddingMm
+        ];
+        if (nonNegativeValues.Any(value => !double.IsFinite(value) || value < 0))
+        {
+            return "حاشیه‌ها و فاصله‌ها نمی‌توانند منفی باشند.";
+        }
+
+        if (settings.MarginLeftMm + settings.MarginRightMm >= settings.PageWidthMm
+            || settings.MarginTopMm + settings.MarginBottomMm >= settings.PageHeightMm)
+        {
+            return "مجموع حاشیه‌ها باید از اندازه صفحه کوچک‌تر باشد.";
+        }
+
+        if (settings.DefaultFontSizePt < settings.MinFontSizePt
+            || settings.HeaderFontSizePt < settings.MinFontSizePt
+            || settings.GroupHeaderFontSizePt < settings.MinFontSizePt)
+        {
+            return "هیچ اندازه قلمی نمی‌تواند از کمینه قلم کوچک‌تر باشد.";
+        }
+
+        if (string.IsNullOrWhiteSpace(settings.PrimaryFontFamily))
+        {
+            return "نام خانواده قلم الزامی است.";
+        }
+
+        return null;
+    }
+}

@@ -1,0 +1,224 @@
+@* FILE: src/PhoneBook.Web/Components/Pages/Entries.razor *@
+@page "/entries"
+@rendermode InteractiveServer
+@inject PhoneBookRepository Repository
+@inject LiveSearchService SearchService
+
+<PageTitle>مدیریت داخلی‌ها</PageTitle>
+
+<section class="page-heading">
+    <div>
+        <span class="eyebrow">شماره‌های سازمانی</span>
+        <h1>داخلی‌ها</h1>
+        <p>گروه را انتخاب کنید و شماره‌ها را بدون خروج از صفحه ویرایش یا مرتب کنید.</p>
+    </div>
+    <label class="heading-select">
+        گروه جاری
+        <select @bind="_selectedGroupId" @bind:after="LoadEntriesAsync">
+            @foreach (PhoneBookGroup group in _groups)
+            {
+                <option value="@group.Id">@group.Title</option>
+            }
+        </select>
+    </label>
+</section>
+
+@if (_groups.Count == 0)
+{
+    <section class="panel empty-state">
+        <h2>هنوز گروهی وجود ندارد</h2>
+        <p>ابتدا در صفحه گروه‌ها یک گروه بسازید.</p>
+        <a class="button-link" href="groups">رفتن به گروه‌ها</a>
+    </section>
+}
+else
+{
+    <section class="panel form-panel">
+        <div class="section-title">
+            <div>
+                <span class="eyebrow">داخلی تازه</span>
+                <h2>افزودن شماره</h2>
+            </div>
+        </div>
+        <div class="form-grid entry-form-grid">
+            <label>نام<input placeholder="نام می‌تواند خالی باشد" @bind="_newEntry.Name" /></label>
+            <label>شماره داخلی<input dir="ltr" inputmode="numeric" @bind="_newEntry.Extension" /></label>
+            <label class="check-field"><input type="checkbox" @bind="_newEntry.IsActive" /> فعال</label>
+            <button class="button primary" disabled="@_busy" @onclick="AddAsync">افزودن داخلی</button>
+        </div>
+    </section>
+
+    <section class="panel table-panel">
+        <div class="section-title">
+            <div>
+                <span class="eyebrow">@PersianTextNormalizer.ToPersianDigits(_entries.Count.ToString(CultureInfo.InvariantCulture)) داخلی</span>
+                <h2>@CurrentGroupTitle</h2>
+            </div>
+        </div>
+
+        @if (_entries.Count == 0)
+        {
+            <div class="empty-state compact">برای این گروه هنوز شماره‌ای ثبت نشده است.</div>
+        }
+        else
+        {
+            <div class="table-scroll">
+                <table>
+                    <thead>
+                        <tr>
+                            <th>نام</th>
+                            <th>داخلی</th>
+                            <th>ترتیب</th>
+                            <th>فعال</th>
+                            <th>جابجایی</th>
+                            <th>عملیات</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @for (int index = 0; index < _entries.Count; index++)
+                        {
+                            PhoneBookEntry entry = _entries[index];
+                            int rowIndex = index;
+                            <tr @key="entry.Id">
+                                <td><input aria-label="نام" @bind="entry.Name" /></td>
+                                <td><input aria-label="شماره داخلی" dir="ltr" @bind="entry.Extension" /></td>
+                                <td><input class="number-input" type="number" min="1" @bind="entry.DisplayOrder" /></td>
+                                <td><input aria-label="فعال" type="checkbox" @bind="entry.IsActive" /></td>
+                                <td class="reorder-actions">
+                                    <button title="انتقال به بالا" disabled="@(_busy || rowIndex == 0)" @onclick="() => MoveAsync(entry.Id, -1)">↑</button>
+                                    <button title="انتقال به پایین" disabled="@(_busy || rowIndex == _entries.Count - 1)" @onclick="() => MoveAsync(entry.Id, 1)">↓</button>
+                                </td>
+                                <td class="row-actions">
+                                    <button class="text-button" disabled="@_busy" @onclick="() => SaveAsync(entry)">ذخیره</button>
+                                    <button class="text-button danger" disabled="@_busy" @onclick="() => DeleteAsync(entry.Id)">حذف</button>
+                                </td>
+                            </tr>
+                        }
+                    </tbody>
+                </table>
+            </div>
+        }
+    </section>
+}
+
+@if (!string.IsNullOrWhiteSpace(_message))
+{
+    <p class="toast @(_hasError ? "error" : "success")">@_message</p>
+}
+
+@code {
+    private readonly PhoneBookEntry _newEntry = new() { IsActive = true };
+    private IReadOnlyList<PhoneBookGroup> _groups = [];
+    private IReadOnlyList<PhoneBookEntry> _entries = [];
+    private int _selectedGroupId;
+    private bool _busy;
+    private bool _hasError;
+    private string? _message;
+
+    private string CurrentGroupTitle => _groups
+        .FirstOrDefault(group => group.Id == _selectedGroupId)?.Title ?? "داخلی‌ها";
+
+    protected override async Task OnInitializedAsync()
+    {
+        _groups = await Repository.GetGroupsAsync();
+        _selectedGroupId = _groups.FirstOrDefault()?.Id ?? 0;
+        await LoadEntriesAsync();
+    }
+
+    private async Task LoadEntriesAsync()
+    {
+        _entries = _selectedGroupId == 0
+            ? []
+            : await Repository.GetEntriesAsync(_selectedGroupId);
+    }
+
+    private Task AddAsync()
+    {
+        if (_selectedGroupId == 0)
+        {
+            ShowError("ابتدا یک گروه انتخاب کنید.");
+            return Task.CompletedTask;
+        }
+
+        if (string.IsNullOrWhiteSpace(_newEntry.Name)
+            && string.IsNullOrWhiteSpace(_newEntry.Extension))
+        {
+            ShowError("نام یا شماره داخلی را وارد کنید.");
+            return Task.CompletedTask;
+        }
+
+        return RunMutationAsync(async () =>
+        {
+            _newEntry.GroupId = _selectedGroupId;
+            await Repository.AddEntryAsync(_newEntry);
+            _newEntry.Name = string.Empty;
+            _newEntry.Extension = null;
+            _newEntry.DisplayOrder = 0;
+            await RefreshAndReloadAsync();
+        }, "داخلی افزوده شد.");
+    }
+
+    private Task SaveAsync(PhoneBookEntry entry)
+    {
+        return RunMutationAsync(async () =>
+        {
+            await Repository.UpdateEntryAsync(entry);
+            await RefreshAndReloadAsync();
+        }, "تغییرات داخلی ذخیره شد.");
+    }
+
+    private Task DeleteAsync(int id)
+    {
+        return RunMutationAsync(async () =>
+        {
+            await Repository.DeleteEntryAsync(id);
+            await RefreshAndReloadAsync();
+        }, "داخلی حذف شد.");
+    }
+
+    private Task MoveAsync(int id, int offset)
+    {
+        return RunMutationAsync(async () =>
+        {
+            await Repository.MoveEntryAsync(id, offset);
+            await RefreshAndReloadAsync();
+        }, "ترتیب داخلی‌ها تغییر کرد.");
+    }
+
+    private async Task RefreshAndReloadAsync()
+    {
+        await SearchService.RefreshAsync();
+        await LoadEntriesAsync();
+    }
+
+    private async Task RunMutationAsync(Func<Task> mutation, string successMessage)
+    {
+        if (_busy)
+        {
+            return;
+        }
+
+        _busy = true;
+        _message = null;
+        try
+        {
+            await mutation();
+            _hasError = false;
+            _message = successMessage;
+        }
+        catch (Exception exception)
+        {
+            ShowError(exception.Message);
+        }
+        finally
+        {
+            _busy = false;
+        }
+    }
+
+    private void ShowError(string message)
+    {
+        _hasError = true;
+        _message = message;
+    }
+}

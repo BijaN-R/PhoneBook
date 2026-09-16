@@ -1,0 +1,151 @@
+@* FILE: src/PhoneBook.Web/Components/Pages/Preview.razor *@
+@page "/preview"
+@rendermode InteractiveServer
+@inject PhoneBookRepository Repository
+@inject AppSettingsService SettingsService
+@inject LayoutEngine LayoutEngine
+@inject ITextMeasurer TextMeasurer
+
+<PageTitle>پیش‌نمایش دفترچه</PageTitle>
+
+<section class="page-heading">
+    <div>
+        <span class="eyebrow">نمای چاپ</span>
+        <h1>پیش‌نمایش</h1>
+        <p>تمام صفحه‌ها با همان ترتیب راست‌به‌چپ خروجی نهایی نمایش داده می‌شوند.</p>
+    </div>
+    <button class="button" disabled="@_loading" @onclick="LoadAsync">بازسازی پیش‌نمایش</button>
+</section>
+
+@if (_loading)
+{
+    <section class="panel"><p class="muted">در حال محاسبه چیدمان…</p></section>
+}
+else if (!string.IsNullOrWhiteSpace(_error))
+{
+    <section class="panel empty-state error"><h2>پیش‌نمایش ساخته نشد</h2><p>@_error</p></section>
+}
+else if (_layout is not null && _settings is not null && _header is not null)
+{
+    <div class="preview-workspace @(_layout.Pages.Count > 3 ? "with-jump-list" : string.Empty)">
+        @if (_layout.Pages.Count > 3)
+        {
+            <aside class="page-jump" aria-label="پرش میان صفحه‌ها">
+                <strong>صفحه‌ها</strong>
+                @for (int pageNumber = 1; pageNumber <= _layout.Pages.Count; pageNumber++)
+                {
+                    <a href="#preview-page-@pageNumber">صفحه @Persian(pageNumber)</a>
+                }
+            </aside>
+        }
+
+        <div class="preview-pages">
+            @for (int pageIndex = 0; pageIndex < _layout.Pages.Count; pageIndex++)
+            {
+                PageLayout page = _layout.Pages[pageIndex];
+                int pageNumber = pageIndex + 1;
+                <section class="preview-page-wrap" id="preview-page-@pageNumber">
+                    <div class="preview-page-label">صفحه @Persian(pageNumber)</div>
+                    <div class="a4-page" style="@PageStyle(_settings)">
+                        @if (pageIndex == 0)
+                        {
+                            <header class="preview-document-title" style="@TitleStyle(_settings)">@Display(_header.Title)</header>
+                        }
+                        <div class="preview-columns">
+                            @for (int columnIndex = 0; columnIndex < page.Columns.Count; columnIndex++)
+                            {
+                                <div class="preview-column">
+                                    @foreach (PlacedGroup placedGroup in page.Columns[columnIndex].OrderBy(item => item.RowIndex))
+                                    {
+                                        <div class="preview-group-slot" style="margin-bottom: @Mm(_settings.GroupGapMm)">
+                                            <GroupCard Group="placedGroup.Group" Settings="_settings" />
+                                        </div>
+                                    }
+                                </div>
+                            }
+                        </div>
+                    </div>
+                </section>
+            }
+        </div>
+    </div>
+}
+
+@code {
+    private LayoutResult? _layout;
+    private AppSettings? _settings;
+    private DocumentHeader? _header;
+    private bool _loading = true;
+    private string? _error;
+
+    protected override Task OnInitializedAsync()
+    {
+        return LoadAsync();
+    }
+
+    private async Task LoadAsync()
+    {
+        _loading = true;
+        _error = null;
+        try
+        {
+            IReadOnlyList<PhoneBookGroup> groups = await Repository.GetGroupsAsync(activeOnly: true);
+            _settings = await SettingsService.GetAsync();
+            _header = await Repository.GetDocumentHeaderAsync();
+            _layout = LayoutEngine.CreateLayout(groups, _settings, TextMeasurer);
+            if (_layout.LayoutFailed)
+            {
+                _error = _layout.FailureReason ?? "چیدمان با تنظیمات فعلی ممکن نیست.";
+            }
+            else
+            {
+                _settings = _layout.EffectiveSettings;
+            }
+        }
+        catch (Exception exception)
+        {
+            _error = exception.Message;
+        }
+        finally
+        {
+            _loading = false;
+        }
+    }
+
+    private string Display(string value)
+    {
+        return _settings?.UsePersianDigits == true
+            ? PersianTextNormalizer.ToPersianDigits(value)
+            : value;
+    }
+
+    private string Persian(int value)
+    {
+        return PersianTextNormalizer.ToPersianDigits(value.ToString(CultureInfo.InvariantCulture));
+    }
+
+    private static string PageStyle(AppSettings settings)
+    {
+        return string.Join(
+            ';',
+            $"padding-top:{Mm(settings.MarginTopMm)}",
+            $"padding-right:{Mm(settings.MarginRightMm)}",
+            $"padding-bottom:{Mm(settings.MarginBottomMm)}",
+            $"padding-left:{Mm(settings.MarginLeftMm)}");
+    }
+
+    private static string TitleStyle(AppSettings settings)
+    {
+        return $"font-size:{Pt(settings.HeaderFontSizePt)};margin-bottom:{Mm(settings.GroupGapMm)};padding:{Mm(settings.CellPaddingMm)}";
+    }
+
+    private static string Mm(double value)
+    {
+        return $"{value.ToString("0.###", CultureInfo.InvariantCulture)}mm";
+    }
+
+    private static string Pt(double value)
+    {
+        return $"{value.ToString("0.##", CultureInfo.InvariantCulture)}pt";
+    }
+}
