@@ -1,6 +1,7 @@
 @* FILE: src/PhoneBook.Web/Components/Pages/Settings.razor *@
 @page "/settings"
 @rendermode InteractiveServer
+@attribute [Authorize(Policy = AuthorizationPolicies.AdminOnly)]
 @inject SettingsService SettingsService
 
 <PageTitle>تنظیمات دفترچه</PageTitle>

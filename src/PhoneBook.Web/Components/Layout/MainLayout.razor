@@ -12,10 +12,30 @@
         </a>
         <nav aria-label="ناوبری اصلی">
             <NavLink href="/" Match="NavLinkMatch.All">داشبورد</NavLink>
-            <NavLink href="groups">گروه‌ها</NavLink>
-            <NavLink href="entries">داخلی‌ها</NavLink>
-            <NavLink href="settings">تنظیمات</NavLink>
             <NavLink href="preview">پیش‌نمایش</NavLink>
+            <AuthorizeView Policy="@AuthorizationPolicies.AdminOnly" Context="adminState">
+                <Authorized>
+                    <NavLink href="groups">گروه‌ها</NavLink>
+                    <NavLink href="entries">داخلی‌ها</NavLink>
+                    <NavLink href="settings">تنظیمات</NavLink>
+                </Authorized>
+            </AuthorizeView>
+            <AuthorizeView Roles="Admin" Context="usersAdminState">
+                <Authorized>
+                    <NavLink href="admin/users">کاربران</NavLink>
+                </Authorized>
+            </AuthorizeView>
+            <AuthorizeView Context="authenticationState">
+                <Authorized>
+                    <form method="post" action="/admin/logout" class="nav-auth-form">
+                        <AntiforgeryToken />
+                        <button type="submit" class="nav-auth-button">خروج</button>
+                    </form>
+                </Authorized>
+                <NotAuthorized>
+                    <NavLink class="admin-login-link" href="admin/login">ورود مدیر</NavLink>
+                </NotAuthorized>
+            </AuthorizeView>
         </nav>
     </header>
 

@@ -1,6 +1,7 @@
 @* FILE: src/PhoneBook.Web/Components/Pages/Entries.razor *@
 @page "/entries"
 @rendermode InteractiveServer
+@attribute [Authorize(Policy = AuthorizationPolicies.AdminOnly)]
 @inject PhoneBookQueryService QueryService
 @inject EntryManagementService EntryService
 @inject PhoneBookSearchService SearchService

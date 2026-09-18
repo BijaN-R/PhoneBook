@@ -1,0 +1,25 @@
+@inject NavigationManager Navigation
+
+<p class="muted">در حال انتقال به صفحه ورود…</p>
+
+@code {
+    [CascadingParameter]
+    private Task<AuthenticationState> AuthenticationStateTask { get; set; } = null!;
+
+    protected override async Task OnInitializedAsync()
+    {
+        AuthenticationState state = await AuthenticationStateTask;
+        string destination;
+        if (state.User.Identity?.IsAuthenticated == true)
+        {
+            destination = "/access-denied";
+        }
+        else
+        {
+            string returnUrl = "/" + Navigation.ToBaseRelativePath(Navigation.Uri);
+            destination = "/admin/login?returnUrl=" + Uri.EscapeDataString(returnUrl);
+        }
+
+        Navigation.NavigateTo(destination, forceLoad: true);
+    }
+}

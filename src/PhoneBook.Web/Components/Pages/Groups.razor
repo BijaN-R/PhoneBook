@@ -1,6 +1,7 @@
 @* FILE: src/PhoneBook.Web/Components/Pages/Groups.razor *@
 @page "/groups"
 @rendermode InteractiveServer
+@attribute [Authorize(Policy = AuthorizationPolicies.AdminOnly)]
 @inject PhoneBookQueryService QueryService
 @inject GroupManagementService GroupService
 @inject PhoneBookSearchService SearchService

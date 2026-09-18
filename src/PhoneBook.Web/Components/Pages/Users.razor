@@ -1,0 +1,392 @@
+@page "/admin/users"
+@rendermode InteractiveServer
+@attribute [Authorize(Roles = AdminBootstrapper.AdminRoleName)]
+@using System.ComponentModel.DataAnnotations
+@using Microsoft.EntityFrameworkCore
+@inject UserManager<ApplicationUser> UserManager
+@inject RoleManager<IdentityRole> RoleManager
+
+<PageTitle>مدیریت کاربران</PageTitle>
+
+<section class="page-heading users-heading">
+    <div>
+        <span class="eyebrow">مدیریت دسترسی</span>
+        <h1>کاربران</h1>
+        <p>حساب‌ها، نقش‌ها و وضعیت دسترسی کاربران دفترچه تلفن را مدیریت کنید.</p>
+    </div>
+</section>
+
+@if (_identityErrors.Count > 0)
+{
+    <div class="user-feedback error" role="alert">
+        <strong>عملیات انجام نشد</strong>
+        <ul>
+            @foreach (string error in _identityErrors)
+            {
+                <li>@error</li>
+            }
+        </ul>
+    </div>
+}
+
+@if (!string.IsNullOrWhiteSpace(_successMessage))
+{
+    <p class="user-feedback success" role="status">@_successMessage</p>
+}
+
+<section class="user-stats" aria-label="آمار کاربران">
+    <article class="user-stat-card">
+        <span>همه کاربران</span>
+        <strong>@ToPersianNumber(_users.Count)</strong>
+    </article>
+    <article class="user-stat-card admin">
+        <span>مدیران</span>
+        <strong>@ToPersianNumber(_users.Count(user => user.IsAdmin))</strong>
+    </article>
+    <article class="user-stat-card active">
+        <span>کاربران فعال</span>
+        <strong>@ToPersianNumber(_users.Count(user => user.IsActive))</strong>
+    </article>
+</section>
+
+<details class="panel user-create-panel">
+    <summary>
+        <span>
+            <span class="eyebrow">کاربر تازه</span>
+            <strong>ساخت حساب کاربری</strong>
+        </span>
+        <span class="summary-action">افزودن کاربر</span>
+    </summary>
+    <div class="user-create-content">
+        <EditForm Model="_createModel" OnValidSubmit="CreateUserAsync" class="form-grid user-form-grid">
+            <DataAnnotationsValidator />
+            <ValidationSummary />
+            <label>ایمیل<InputText @bind-Value="_createModel.Email" type="email" dir="ltr" autocomplete="username" /></label>
+            <label>گذرواژه<InputText @bind-Value="_createModel.Password" type="password" dir="ltr" autocomplete="new-password" /></label>
+            <label>تکرار گذرواژه<InputText @bind-Value="_createModel.ConfirmPassword" type="password" dir="ltr" autocomplete="new-password" /></label>
+            <label>
+                نقش
+                <InputSelect @bind-Value="_createModel.Role">
+                    <option value="User">کاربر</option>
+                    <option value="Admin">مدیر</option>
+                </InputSelect>
+            </label>
+            <button class="button primary" type="submit" disabled="@_busy">@(_busy ? "در حال ساخت…" : "ساخت کاربر")</button>
+        </EditForm>
+    </div>
+</details>
+
+<section class="panel user-list-panel">
+    <div class="user-list-header">
+        <div>
+            <span class="eyebrow">مدیریت حساب‌ها</span>
+            <h2>فهرست کاربران</h2>
+        </div>
+        <div class="user-filters">
+            <label class="search-field">جست‌وجو<input @bind="_searchTerm" @bind:event="oninput" type="search" placeholder="جست‌وجوی ایمیل…" /></label>
+            <label class="filter-field">
+                نقش
+                <select @bind="_roleFilter">
+                    <option value="All">همه نقش‌ها</option>
+                    <option value="Admin">مدیر</option>
+                    <option value="User">کاربر</option>
+                </select>
+            </label>
+        </div>
+    </div>
+
+    @if (_loading)
+    {
+        <div class="empty-state compact">در حال دریافت کاربران…</div>
+    }
+    else if (!FilteredUsers.Any())
+    {
+        <div class="empty-state compact"><h2>کاربری پیدا نشد</h2><p>عبارت جست‌وجو یا فیلتر نقش را تغییر دهید.</p></div>
+    }
+    else
+    {
+        <div class="table-scroll">
+            <table class="users-table">
+                <thead><tr><th>کاربر</th><th>نقش</th><th>وضعیت</th><th>عملیات</th></tr></thead>
+                <tbody>
+                    @foreach (UserRow user in FilteredUsers)
+                    {
+                        <tr @key="user.Id">
+                            <td>
+                                <div class="user-identity">
+                                    <span class="user-avatar" aria-hidden="true">@GetAvatarText(user.Email)</span>
+                                    <span>
+                                        <strong dir="ltr">@user.Email</strong>
+                                        @if (user.IsCurrentUser) { <small>حساب فعلی شما</small> }
+                                    </span>
+                                </div>
+                            </td>
+                            <td>
+                                <div class="role-editor">
+                                    <select aria-label="نقش @user.Email" @bind="user.SelectedRole" disabled="@_busy">
+                                        <option value="User">کاربر</option><option value="Admin">مدیر</option>
+                                    </select>
+                                    <button class="text-button" type="button" disabled="@(_busy || user.SelectedRole == user.Role)" @onclick="() => ChangeRoleAsync(user)">ذخیره نقش</button>
+                                </div>
+                            </td>
+                            <td>
+                                <span class="user-status @(user.IsActive ? "active" : "inactive")"><span aria-hidden="true"></span>@(user.IsActive ? "فعال" : "غیرفعال")</span>
+                            </td>
+                            <td>
+                                <div class="user-actions">
+                                    <button class="text-button" type="button" disabled="@_busy" @onclick="() => BeginPasswordReset(user.Id)">گذرواژه</button>
+                                    <button class="text-button @(user.IsActive ? "warning" : null)" type="button"
+                                            disabled="@(_busy || (user.IsActive && user.IsCurrentUser))"
+                                            title="@(user.IsCurrentUser && user.IsActive ? "نمی‌توانید حساب خودتان را غیرفعال کنید." : null)"
+                                            @onclick="() => ToggleActiveAsync(user)">@(user.IsActive ? "غیرفعال‌کردن" : "فعال‌کردن")</button>
+                                    @if (_deleteConfirmationUserId == user.Id)
+                                    {
+                                        <button class="text-button danger confirm-delete" type="button" disabled="@_busy" @onclick="() => DeleteUserAsync(user)">تأیید حذف</button>
+                                        <button class="text-button" type="button" disabled="@_busy" @onclick="CancelDelete">انصراف</button>
+                                    }
+                                    else
+                                    {
+                                        <button class="text-button danger" type="button" disabled="@(_busy || user.IsCurrentUser)"
+                                                title="@(user.IsCurrentUser ? "نمی‌توانید حساب خودتان را حذف کنید." : null)"
+                                                @onclick="() => ConfirmDelete(user.Id)">حذف</button>
+                                    }
+                                </div>
+                            </td>
+                        </tr>
+                        @if (_passwordResetUserId == user.Id)
+                        {
+                            <tr class="password-reset-row">
+                                <td colspan="4">
+                                    <EditForm Model="_resetPasswordModel" OnValidSubmit="ResetPasswordAsync" class="password-reset-form">
+                                        <DataAnnotationsValidator />
+                                        <div><strong>تنظیم گذرواژه جدید</strong><small dir="ltr">@user.Email</small></div>
+                                        <label>گذرواژه جدید<InputText @bind-Value="_resetPasswordModel.Password" type="password" dir="ltr" autocomplete="new-password" /></label>
+                                        <label>تکرار گذرواژه<InputText @bind-Value="_resetPasswordModel.ConfirmPassword" type="password" dir="ltr" autocomplete="new-password" /></label>
+                                        <button class="button primary" type="submit" disabled="@_busy">ثبت گذرواژه</button>
+                                        <button class="button" type="button" disabled="@_busy" @onclick="CancelPasswordReset">انصراف</button>
+                                        <ValidationSummary />
+                                    </EditForm>
+                                </td>
+                            </tr>
+                        }
+                    }
+                </tbody>
+            </table>
+        </div>
+    }
+</section>
+
+@code {
+    private const string UserRoleName = "User";
+    private static readonly HashSet<string> AllowedRoles = [UserRoleName, AdminBootstrapper.AdminRoleName];
+
+    [CascadingParameter] private Task<AuthenticationState> AuthenticationStateTask { get; set; } = null!;
+
+    private CreateUserModel _createModel = new();
+    private ResetPasswordModel _resetPasswordModel = new();
+    private List<UserRow> _users = [];
+    private IReadOnlyList<string> _identityErrors = [];
+    private string? _successMessage;
+    private string? _currentUserId;
+    private string? _passwordResetUserId;
+    private string? _deleteConfirmationUserId;
+    private string _searchTerm = string.Empty;
+    private string _roleFilter = "All";
+    private bool _busy;
+    private bool _loading = true;
+
+    private IEnumerable<UserRow> FilteredUsers => _users.Where(user =>
+        (string.IsNullOrWhiteSpace(_searchTerm) || user.Email.Contains(_searchTerm.Trim(), StringComparison.OrdinalIgnoreCase))
+        && (_roleFilter == "All" || user.Role == _roleFilter));
+
+    protected override async Task OnInitializedAsync()
+    {
+        AuthenticationState authenticationState = await AuthenticationStateTask;
+        _currentUserId = UserManager.GetUserId(authenticationState.User);
+        await ReloadUsersAsync();
+    }
+
+    private async Task ReloadUsersAsync()
+    {
+        _loading = true;
+        try
+        {
+            List<ApplicationUser> users = await UserManager.Users.OrderBy(user => user.Email).ToListAsync();
+            List<UserRow> rows = new(users.Count);
+            foreach (ApplicationUser user in users)
+            {
+                IList<string> roles = await UserManager.GetRolesAsync(user);
+                string role = roles.Contains(AdminBootstrapper.AdminRoleName) ? AdminBootstrapper.AdminRoleName : UserRoleName;
+                rows.Add(new UserRow(user.Id, user.Email ?? user.UserName ?? "—", role, IsActive(user), user.Id == _currentUserId));
+            }
+            _users = rows;
+        }
+        finally { _loading = false; }
+    }
+
+    private Task CreateUserAsync() => RunMutationAsync(async () =>
+    {
+        if (!AllowedRoles.Contains(_createModel.Role)) { SetError("نقش انتخاب‌شده معتبر نیست."); return false; }
+        IdentityResult roleResult = await EnsureRoleExistsAsync(_createModel.Role);
+        if (!roleResult.Succeeded) { SetIdentityErrors(roleResult); return false; }
+
+        string email = _createModel.Email.Trim();
+        ApplicationUser user = new() { UserName = email, Email = email, EmailConfirmed = true, LockoutEnabled = true };
+        IdentityResult createResult = await UserManager.CreateAsync(user, _createModel.Password);
+        if (!createResult.Succeeded) { SetIdentityErrors(createResult); return false; }
+
+        IdentityResult addResult = await UserManager.AddToRoleAsync(user, _createModel.Role);
+        if (!addResult.Succeeded)
+        {
+            IdentityResult rollbackResult = await UserManager.DeleteAsync(user);
+            SetIdentityErrors(addResult.Errors.Concat(rollbackResult.Errors));
+            return false;
+        }
+        _successMessage = $"کاربر {email} با موفقیت ساخته شد.";
+        _createModel = new CreateUserModel();
+        return true;
+    });
+
+    private Task ChangeRoleAsync(UserRow row) => RunMutationAsync(async () =>
+    {
+        if (!AllowedRoles.Contains(row.SelectedRole)) { SetError("نقش انتخاب‌شده معتبر نیست."); return false; }
+        ApplicationUser? user = await UserManager.FindByIdAsync(row.Id);
+        if (user is null) { SetError("کاربر موردنظر دیگر وجود ندارد."); return false; }
+
+        bool isAdmin = await UserManager.IsInRoleAsync(user, AdminBootstrapper.AdminRoleName);
+        if (isAdmin && row.SelectedRole != AdminBootstrapper.AdminRoleName && !await HasAnotherActiveAdminAsync(user.Id))
+        { SetError("نقش آخرین مدیر فعال سیستم قابل تغییر نیست."); return false; }
+
+        IdentityResult roleResult = await EnsureRoleExistsAsync(row.SelectedRole);
+        if (!roleResult.Succeeded) { SetIdentityErrors(roleResult); return false; }
+        if (!await UserManager.IsInRoleAsync(user, row.SelectedRole))
+        {
+            IdentityResult addResult = await UserManager.AddToRoleAsync(user, row.SelectedRole);
+            if (!addResult.Succeeded) { SetIdentityErrors(addResult); return false; }
+        }
+        foreach (string obsoleteRole in AllowedRoles.Where(role => role != row.SelectedRole))
+        {
+            if (!await UserManager.IsInRoleAsync(user, obsoleteRole)) { continue; }
+            IdentityResult removeResult = await UserManager.RemoveFromRoleAsync(user, obsoleteRole);
+            if (!removeResult.Succeeded) { SetIdentityErrors(removeResult); return false; }
+        }
+        _successMessage = $"نقش {row.Email} با موفقیت تغییر کرد.";
+        return true;
+    });
+
+    private Task ToggleActiveAsync(UserRow row) => RunMutationAsync(async () =>
+    {
+        ApplicationUser? user = await UserManager.FindByIdAsync(row.Id);
+        if (user is null) { SetError("کاربر موردنظر دیگر وجود ندارد."); return false; }
+        if (row.IsActive && user.Id == _currentUserId) { SetError("نمی‌توانید حسابی را که با آن وارد شده‌اید غیرفعال کنید."); return false; }
+        if (row.IsActive && await UserManager.IsInRoleAsync(user, AdminBootstrapper.AdminRoleName)
+            && !await HasAnotherActiveAdminAsync(user.Id))
+        { SetError("آخرین مدیر فعال سیستم را نمی‌توان غیرفعال کرد."); return false; }
+
+        IdentityResult enabledResult = await UserManager.SetLockoutEnabledAsync(user, true);
+        if (!enabledResult.Succeeded) { SetIdentityErrors(enabledResult); return false; }
+        IdentityResult statusResult = await UserManager.SetLockoutEndDateAsync(user, row.IsActive ? DateTimeOffset.MaxValue : null);
+        if (!statusResult.Succeeded) { SetIdentityErrors(statusResult); return false; }
+        _successMessage = row.IsActive ? $"حساب {row.Email} غیرفعال شد." : $"حساب {row.Email} دوباره فعال شد.";
+        return true;
+    });
+
+    private void BeginPasswordReset(string userId)
+    {
+        ClearFeedback(); _deleteConfirmationUserId = null; _passwordResetUserId = userId; _resetPasswordModel = new();
+    }
+
+    private async Task ResetPasswordAsync()
+    {
+        if (_passwordResetUserId is null) { return; }
+        string userId = _passwordResetUserId;
+        await RunMutationAsync(async () =>
+        {
+            ApplicationUser? user = await UserManager.FindByIdAsync(userId);
+            if (user is null) { SetError("کاربر موردنظر دیگر وجود ندارد."); return false; }
+            string token = await UserManager.GeneratePasswordResetTokenAsync(user);
+            IdentityResult result = await UserManager.ResetPasswordAsync(user, token, _resetPasswordModel.Password);
+            if (!result.Succeeded) { SetIdentityErrors(result); return false; }
+            _successMessage = $"گذرواژه {user.Email} با موفقیت تغییر کرد.";
+            _passwordResetUserId = null; _resetPasswordModel = new();
+            return true;
+        });
+    }
+
+    private void ConfirmDelete(string userId) { ClearFeedback(); _passwordResetUserId = null; _deleteConfirmationUserId = userId; }
+
+    private Task DeleteUserAsync(UserRow row) => _deleteConfirmationUserId != row.Id ? Task.CompletedTask : RunMutationAsync(async () =>
+    {
+        ApplicationUser? user = await UserManager.FindByIdAsync(row.Id);
+        if (user is null) { SetError("کاربر موردنظر دیگر وجود ندارد."); return false; }
+        if (user.Id == _currentUserId) { SetError("نمی‌توانید حسابی را که با آن وارد شده‌اید حذف کنید."); return false; }
+        if (await UserManager.IsInRoleAsync(user, AdminBootstrapper.AdminRoleName) && !await HasAnotherActiveAdminAsync(user.Id))
+        { SetError("آخرین مدیر فعال سیستم را نمی‌توان حذف کرد."); return false; }
+        IdentityResult result = await UserManager.DeleteAsync(user);
+        if (!result.Succeeded) { SetIdentityErrors(result); return false; }
+        _deleteConfirmationUserId = null; _successMessage = $"کاربر {row.Email} حذف شد.";
+        return true;
+    });
+
+    private async Task<bool> HasAnotherActiveAdminAsync(string excludedUserId)
+    {
+        IList<ApplicationUser> admins = await UserManager.GetUsersInRoleAsync(AdminBootstrapper.AdminRoleName);
+        return admins.Any(user => user.Id != excludedUserId && IsActive(user));
+    }
+
+    private async Task RunMutationAsync(Func<Task<bool>> mutation)
+    {
+        if (_busy) { return; }
+        ClearFeedback(); _busy = true;
+        try { if (await mutation()) { await ReloadUsersAsync(); } }
+        catch (Exception exception) { SetError(exception.Message); }
+        finally { _busy = false; }
+    }
+
+    private async Task<IdentityResult> EnsureRoleExistsAsync(string roleName) =>
+        await RoleManager.RoleExistsAsync(roleName) ? IdentityResult.Success : await RoleManager.CreateAsync(new IdentityRole(roleName));
+
+    private static bool IsActive(ApplicationUser user) => !user.LockoutEnabled || user.LockoutEnd is null || user.LockoutEnd <= DateTimeOffset.UtcNow;
+    private static string GetAvatarText(string email) => string.IsNullOrWhiteSpace(email) ? "؟" : email[..1].ToUpperInvariant();
+    private static string ToPersianNumber(int value) => PersianTextNormalizer.ToPersianDigits(value.ToString(CultureInfo.InvariantCulture));
+    private void SetIdentityErrors(IdentityResult result) => SetIdentityErrors(result.Errors);
+    private void SetIdentityErrors(IEnumerable<IdentityError> errors) => _identityErrors = errors.Select(error => error.Description).ToArray();
+    private void SetError(string message) => _identityErrors = [message];
+    private void ClearFeedback() { _identityErrors = []; _successMessage = null; }
+    private void CancelDelete() => _deleteConfirmationUserId = null;
+    private void CancelPasswordReset() { _passwordResetUserId = null; _resetPasswordModel = new(); }
+
+    private sealed class UserRow(string id, string email, string role, bool isActive, bool isCurrentUser)
+    {
+        public string Id { get; } = id;
+        public string Email { get; } = email;
+        public string Role { get; } = role;
+        public string SelectedRole { get; set; } = role;
+        public bool IsAdmin => Role == AdminBootstrapper.AdminRoleName;
+        public bool IsActive { get; } = isActive;
+        public bool IsCurrentUser { get; } = isCurrentUser;
+    }
+
+    private sealed class CreateUserModel
+    {
+        [Required(ErrorMessage = "ایمیل را وارد کنید.")]
+        [EmailAddress(ErrorMessage = "ایمیل معتبر نیست.")]
+        public string Email { get; set; } = string.Empty;
+        [Required(ErrorMessage = "گذرواژه را وارد کنید.")]
+        public string Password { get; set; } = string.Empty;
+        [Required(ErrorMessage = "تکرار گذرواژه را وارد کنید.")]
+        [Compare(nameof(Password), ErrorMessage = "گذرواژه و تکرار آن یکسان نیستند.")]
+        public string ConfirmPassword { get; set; } = string.Empty;
+        [Required(ErrorMessage = "نقش را انتخاب کنید.")]
+        public string Role { get; set; } = UserRoleName;
+    }
+
+    private sealed class ResetPasswordModel
+    {
+        [Required(ErrorMessage = "گذرواژه جدید را وارد کنید.")]
+        public string Password { get; set; } = string.Empty;
+        [Required(ErrorMessage = "تکرار گذرواژه را وارد کنید.")]
+        [Compare(nameof(Password), ErrorMessage = "گذرواژه و تکرار آن یکسان نیستند.")]
+        public string ConfirmPassword { get; set; } = string.Empty;
+    }
+}

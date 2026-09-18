@@ -1,11 +1,14 @@
 // FILE: src/PhoneBook.Infrastructure/Data/AppDbContext.cs
+using Microsoft.AspNetCore.Identity.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore;
 using PhoneBook.Domain.Entities;
 using PhoneBook.Domain.Enums;
+using PhoneBook.Infrastructure.Identity;
 
 namespace PhoneBook.Infrastructure.Data;
 
-public sealed class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(options)
+public sealed class AppDbContext(DbContextOptions<AppDbContext> options)
+    : IdentityDbContext<ApplicationUser>(options)
 {
     public DbSet<DocumentHeader> DocumentHeaders => Set<DocumentHeader>();
 

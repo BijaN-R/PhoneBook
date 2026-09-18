@@ -1,0 +1,48 @@
+@page "/admin/login"
+@attribute [AllowAnonymous]
+
+<PageTitle>ورود مدیر</PageTitle>
+
+<section class="page-heading auth-heading">
+    <div>
+        <span class="eyebrow">مدیریت دفترچه</span>
+        <h1>ورود مدیر</h1>
+        <p>برای مدیریت گروه‌ها، داخلی‌ها و تنظیمات وارد شوید.</p>
+    </div>
+</section>
+
+<section class="panel auth-panel">
+    @if (string.Equals(Error, "invalid", StringComparison.Ordinal))
+    {
+        <p class="status-message error">اطلاعات ورود صحیح نیست یا حساب موقتاً قفل شده است.</p>
+    }
+
+    <form method="post" action="/admin/sign-in" class="form-grid auth-form">
+        <AntiforgeryToken />
+        <input type="hidden" name="returnUrl" value="@LocalReturnUrl" />
+        <label>
+            ایمیل مدیر
+            <input name="email" type="email" dir="ltr" autocomplete="username" required autofocus />
+        </label>
+        <label>
+            گذرواژه
+            <input name="password" type="password" dir="ltr" autocomplete="current-password" required />
+        </label>
+        <button class="button primary" type="submit">ورود</button>
+    </form>
+</section>
+
+@code {
+    [SupplyParameterFromQuery(Name = "returnUrl")]
+    private string? ReturnUrl { get; set; }
+
+    [SupplyParameterFromQuery(Name = "error")]
+    private string? Error { get; set; }
+
+    private string LocalReturnUrl => string.IsNullOrWhiteSpace(ReturnUrl)
+        || !ReturnUrl.StartsWith("/", StringComparison.Ordinal)
+        || ReturnUrl.StartsWith("//", StringComparison.Ordinal)
+        || ReturnUrl.StartsWith("/\\", StringComparison.Ordinal)
+            ? "/"
+            : ReturnUrl;
+}
