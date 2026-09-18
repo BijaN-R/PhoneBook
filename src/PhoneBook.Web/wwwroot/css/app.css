@@ -278,6 +278,49 @@ button:disabled {
     gap: .55rem;
 }
 
+.results-pagination {
+    display: flex;
+    align-items: end;
+    justify-content: space-between;
+    gap: 1rem;
+    margin-top: 1.25rem;
+    padding-top: 1rem;
+    border-top: 1px solid var(--line);
+}
+
+.pagination-summary {
+    display: grid;
+    color: var(--ink);
+    font-weight: 700;
+}
+
+.pagination-summary small {
+    color: var(--muted);
+    font-weight: 400;
+}
+
+.page-size-field {
+    display: grid;
+    gap: .25rem;
+    min-width: 9rem;
+    color: var(--muted);
+    font-size: .82rem;
+}
+
+.page-size-field select {
+    min-height: 39px;
+}
+
+.pagination-actions {
+    display: flex;
+    gap: .4rem;
+}
+
+.pagination-actions .button {
+    min-height: 39px;
+    padding: .45rem .7rem;
+}
+
 .search-result {
     display: flex;
     align-items: center;
@@ -1399,6 +1442,16 @@ td .number-input {
 
     .search-result {
         align-items: flex-start;
+    }
+
+    .results-pagination {
+        align-items: stretch;
+        flex-direction: column;
+    }
+
+    .pagination-actions {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
     }
 
     .a4-page {

@@ -35,7 +35,7 @@
     </div>
     <div class="filter-field">
         <label for="group-filter">گروه</label>
-        <select id="group-filter" @bind="_selectedGroupId" @bind:after="ApplyFilters">
+        <select id="group-filter" @bind="_selectedGroupId" @bind:after="ResetAndApplyFilters">
             <option value="0">همه گروه‌ها</option>
             @foreach (PhoneBookGroup group in _groups)
             {
@@ -50,7 +50,7 @@
         <div class="section-title">
             <div>
                 <span class="eyebrow">نتایج زنده</span>
-                <h2>@PersianTextNormalizer.ToPersianDigits(_visibleHits.Count.ToString(CultureInfo.InvariantCulture)) مورد</h2>
+                <h2>فهرست مخاطبین</h2>
             </div>
         </div>
 
@@ -62,7 +62,7 @@
         {
             <div class="empty-state compact">
                 <strong>نتیجه‌ای پیدا نشد</strong>
-                <span>عبارت کوتاه‌تری وارد کنید یا فیلتر گروه را تغییر دهید.</span>
+                <span>موردی مطابق جست‌وجو و فیلترهای انتخاب‌شده پیدا نشد.</span>
             </div>
         }
         else
@@ -79,6 +79,30 @@
                     </article>
                 }
             </div>
+
+            <nav class="results-pagination" aria-label="صفحه‌بندی نتایج دفترچه تلفن">
+                <div class="pagination-summary" role="status">
+                    @ToPersian(TotalResults) نتیجه — صفحه @ToPersian(_currentPage) از @ToPersian(TotalPages)
+                    <small>نمایش @ToPersian(FirstVisibleResult) تا @ToPersian(LastVisibleResult)</small>
+                </div>
+                <label class="page-size-field" for="dashboard-page-size">
+                    تعداد در هر صفحه
+                    <select id="dashboard-page-size" @bind="_pageSize" @bind:after="OnPageSizeChanged">
+                        <option value="20">۲۰</option>
+                        <option value="50">۵۰</option>
+                        <option value="100">۱۰۰</option>
+                    </select>
+                </label>
+                @if (TotalPages > 1)
+                {
+                    <div class="pagination-actions">
+                        <button class="button" disabled="@(_currentPage == 1)" @onclick="() => GoToPage(1)">ابتدا</button>
+                        <button class="button" disabled="@(_currentPage == 1)" @onclick="() => GoToPage(_currentPage - 1)">قبلی</button>
+                        <button class="button" disabled="@(_currentPage == TotalPages)" @onclick="() => GoToPage(_currentPage + 1)">بعدی</button>
+                        <button class="button" disabled="@(_currentPage == TotalPages)" @onclick="() => GoToPage(TotalPages)">انتها</button>
+                    </div>
+                }
+            </nav>
         }
     </div>
 
@@ -126,6 +150,7 @@
 
 @code {
     private readonly List<SearchHit> _visibleHits = [];
+    private readonly List<SearchHit> _filteredHits = [];
     private IReadOnlyList<PhoneBookGroup> _groups = [];
     private IReadOnlyList<PhoneBookGroup> _exportGroups = [];
     private DocumentHeader? _header;
@@ -134,10 +159,17 @@
     private CancellationTokenSource? _searchCts;
     private string _query = string.Empty;
     private int _selectedGroupId;
+    private int _currentPage = 1;
+    private int _pageSize = 20;
     private bool _loading = true;
     private bool _exporting;
     private bool _hasError;
     private string? _message;
+
+    private int TotalResults => _filteredHits.Count;
+    private int TotalPages => TotalResults == 0 ? 0 : (TotalResults + _pageSize - 1) / _pageSize;
+    private int FirstVisibleResult => TotalResults == 0 ? 0 : ((_currentPage - 1) * _pageSize) + 1;
+    private int LastVisibleResult => Math.Min(_currentPage * _pageSize, TotalResults);
 
     protected override async Task OnInitializedAsync()
     {
@@ -171,6 +203,7 @@
         try
         {
             await Task.Delay(150, token);
+            _currentPage = 1;
             ApplyFilters();
         }
         catch (OperationCanceledException) when (token.IsCancellationRequested)
@@ -186,9 +219,54 @@
             hits = hits.Where(hit => hit.GroupId == _selectedGroupId);
         }
 
-        _visibleHits.Clear();
-        _visibleHits.AddRange(hits.Take(20));
+        _filteredHits.Clear();
+        _filteredHits.AddRange(hits);
+        UpdateVisiblePage();
     }
+
+    private void ResetAndApplyFilters()
+    {
+        _currentPage = 1;
+        ApplyFilters();
+    }
+
+    private void OnPageSizeChanged()
+    {
+        _currentPage = 1;
+        UpdateVisiblePage();
+    }
+
+    private void GoToPage(int page)
+    {
+        if (TotalPages == 0)
+        {
+            _currentPage = 1;
+            _visibleHits.Clear();
+            return;
+        }
+
+        _currentPage = Math.Clamp(page, 1, TotalPages);
+        UpdateVisiblePage();
+    }
+
+    private void UpdateVisiblePage()
+    {
+        if (TotalPages == 0)
+        {
+            _currentPage = 1;
+            _visibleHits.Clear();
+            return;
+        }
+
+        _currentPage = Math.Clamp(_currentPage, 1, TotalPages);
+        _visibleHits.Clear();
+        _visibleHits.AddRange(_filteredHits
+            .Skip((_currentPage - 1) * _pageSize)
+            .Take(_pageSize));
+    }
+
+    private static string ToPersian(int value) =>
+        PersianTextNormalizer.ToPersianDigits(value.ToString(CultureInfo.InvariantCulture));
 
     private async Task ExportDocxAsync()
     {
