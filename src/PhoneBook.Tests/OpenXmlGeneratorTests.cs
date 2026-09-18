@@ -16,6 +16,40 @@ public sealed class OpenXmlGeneratorTests
     private readonly TestDataSeeder.DeterministicTextMeasurer _measurer = new();
 
     [Fact]
+    public void Group_Table_Uses_Thirty_Seventy_Column_Proportions()
+    {
+        PhoneBookGroup group = TestDataSeeder.CreateSeedGroups().First();
+        Table table = TableFactory.CreateGroupTable(
+            group,
+            TestDataSeeder.CreateSettings(),
+            _measurer);
+        GridColumn[] gridColumns = table.GetFirstChild<TableGrid>()!
+            .Elements<GridColumn>()
+            .ToArray();
+        TableCell[] entryCells = table.Elements<TableRow>()
+            .Skip(1)
+            .First()
+            .Elements<TableCell>()
+            .ToArray();
+
+        int nameGridWidth = int.Parse(gridColumns[0].Width!.Value!);
+        int extensionGridWidth = int.Parse(gridColumns[1].Width!.Value!);
+        double extensionRatio = (double)extensionGridWidth / (nameGridWidth + extensionGridWidth);
+        TableCellWidth nameCellWidth = entryCells[0]
+            .TableCellProperties!
+            .GetFirstChild<TableCellWidth>()!;
+        TableCellWidth extensionCellWidth = entryCells[1]
+            .TableCellProperties!
+            .GetFirstChild<TableCellWidth>()!;
+
+        extensionRatio.Should().BeApproximately(0.30, 0.0001);
+        nameCellWidth.Type!.Value.Should().Be(TableWidthUnitValues.Pct);
+        nameCellWidth.Width!.Value.Should().Be("3500");
+        extensionCellWidth.Type!.Value.Should().Be(TableWidthUnitValues.Pct);
+        extensionCellWidth.Width!.Value.Should().Be("1500");
+    }
+
+    [Fact]
     public async Task Seed_Dataset_Generates_A_Valid_One_Page_Docx()
     {
         IReadOnlyList<PhoneBookGroup> groups = TestDataSeeder.CreateSeedGroups();

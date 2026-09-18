@@ -3,6 +3,9 @@ using PhoneBook.Core.Layout;
 using PhoneBook.Core.Text;
 using PhoneBook.Domain.Entities;
 using SkiaSharp;
+using SkiaSharp.HarfBuzz;
+using HarfBuzzBuffer = HarfBuzzSharp.Buffer;
+using HarfBuzzDirection = HarfBuzzSharp.Direction;
 
 namespace PhoneBook.Export.Image.Skia;
 
@@ -12,6 +15,7 @@ public sealed class SkiaPageRenderer
     private const double A4WidthMm = 210.0;
     private const double A4HeightMm = 297.0;
     private const float BorderWidthPt = 0.5f;
+    internal const float ExtensionColumnRatio = 0.30f;
 
     private static readonly SKColor GroupHeaderColor = new(0xD9, 0xD9, 0xD9);
     private readonly SkiaFontRegistry _fonts;
@@ -74,6 +78,8 @@ public sealed class SkiaPageRenderer
             using SKFont titleFont = CreateFont(_fonts.Bold, settings.HeaderFontSizePt);
             using SKFont groupFont = CreateFont(_fonts.Bold, settings.GroupHeaderFontSizePt);
             using SKFont rowFont = CreateFont(_fonts.Regular, settings.DefaultFontSizePt);
+            using SKShaper boldShaper = new(_fonts.Bold);
+            using SKShaper regularShaper = new(_fonts.Regular);
 
             float columnsTop = top;
             if (isFirstPage)
@@ -84,6 +90,7 @@ public sealed class SkiaPageRenderer
                 DrawClippedText(
                     canvas,
                     DisplayText(header.Title, settings),
+                    boldShaper,
                     titleFont,
                     textPaint,
                     titleBounds,
@@ -113,6 +120,8 @@ public sealed class SkiaPageRenderer
                         columnLeft,
                         columnRight,
                         y,
+                        boldShaper,
+                        regularShaper,
                         groupFont,
                         rowFont,
                         textPaint,
@@ -146,6 +155,8 @@ public sealed class SkiaPageRenderer
         float left,
         float right,
         float top,
+        SKShaper groupShaper,
+        SKShaper rowShaper,
         SKFont groupFont,
         SKFont rowFont,
         SKPaint textPaint,
@@ -177,6 +188,7 @@ public sealed class SkiaPageRenderer
         DrawClippedText(
             canvas,
             DisplayText(placedGroup.Group.Title, settings),
+            groupShaper,
             groupFont,
             textPaint,
             headerBounds,
@@ -184,12 +196,12 @@ public sealed class SkiaPageRenderer
             padding);
 
         float rowTop = headerBounds.Bottom;
-        float midpoint = left + ((right - left) / 2);
+        float extensionRight = left + ((right - left) * ExtensionColumnRatio);
 
         foreach (PhoneBookEntry entry in entries)
         {
-            SKRect extensionCell = new(left, rowTop, midpoint, rowTop + rowHeight);
-            SKRect nameCell = new(midpoint, rowTop, right, rowTop + rowHeight);
+            SKRect extensionCell = new(left, rowTop, extensionRight, rowTop + rowHeight);
+            SKRect nameCell = new(extensionRight, rowTop, right, rowTop + rowHeight);
 
             canvas.DrawRect(extensionCell, borderPaint);
             canvas.DrawRect(nameCell, borderPaint);
@@ -197,14 +209,16 @@ public sealed class SkiaPageRenderer
             DrawClippedText(
                 canvas,
                 DisplayText(entry.Extension ?? string.Empty, settings),
+                rowShaper,
                 rowFont,
                 textPaint,
                 extensionCell,
-                HorizontalTextAlignment.Left,
+                HorizontalTextAlignment.Center,
                 padding);
             DrawClippedText(
                 canvas,
                 DisplayText(entry.Name, settings),
+                rowShaper,
                 rowFont,
                 textPaint,
                 nameCell,
@@ -218,6 +232,7 @@ public sealed class SkiaPageRenderer
     private static void DrawClippedText(
         SKCanvas canvas,
         string text,
+        SKShaper shaper,
         SKFont font,
         SKPaint paint,
         SKRect bounds,
@@ -242,42 +257,78 @@ public sealed class SkiaPageRenderer
         try
         {
             canvas.ClipRect(new SKRect(contentLeft, bounds.Top, contentRight, bounds.Bottom));
-            using SKTextBlob? blob = SKTextBlob.Create(text, font, SKPoint.Empty);
-            if (blob is not null)
+            IReadOnlyList<DirectionalTextRun> visualRuns = BidirectionalText.GetVisualRuns(text);
+            SKShaper.Result[] shapedRuns = new SKShaper.Result[visualRuns.Count];
+            float textWidth = 0;
+            for (int index = 0; index < visualRuns.Count; index++)
             {
-                SKRect textBounds = blob.Bounds;
-                float x = alignment switch
-                {
-                    HorizontalTextAlignment.Left => contentLeft - textBounds.Left,
-                    HorizontalTextAlignment.Center => bounds.MidX - textBounds.MidX,
-                    HorizontalTextAlignment.Right => contentRight - textBounds.Right,
-                    _ => throw new ArgumentOutOfRangeException(nameof(alignment))
-                };
-                canvas.DrawText(blob, x, baseline, paint);
+                SKShaper.Result shapedRun = ShapeTextRun(shaper, visualRuns[index], font);
+                shapedRuns[index] = shapedRun;
+                textWidth += shapedRun.Width;
             }
-            else
+
+            float x = alignment switch
             {
-                SKTextAlign fallbackAlignment = alignment switch
-                {
-                    HorizontalTextAlignment.Left => SKTextAlign.Left,
-                    HorizontalTextAlignment.Center => SKTextAlign.Center,
-                    HorizontalTextAlignment.Right => SKTextAlign.Right,
-                    _ => throw new ArgumentOutOfRangeException(nameof(alignment))
-                };
-                float anchor = alignment switch
-                {
-                    HorizontalTextAlignment.Left => contentLeft,
-                    HorizontalTextAlignment.Center => bounds.MidX,
-                    HorizontalTextAlignment.Right => contentRight,
-                    _ => throw new ArgumentOutOfRangeException(nameof(alignment))
-                };
-                canvas.DrawText(text, anchor, baseline, fallbackAlignment, font, paint);
+                HorizontalTextAlignment.Left => contentLeft,
+                HorizontalTextAlignment.Center => bounds.MidX - (textWidth / 2),
+                HorizontalTextAlignment.Right => contentRight - textWidth,
+                _ => throw new ArgumentOutOfRangeException(nameof(alignment))
+            };
+
+            for (int index = 0; index < visualRuns.Count; index++)
+            {
+                DrawShapedRun(canvas, shapedRuns[index], font, paint, x, baseline);
+                x += shapedRuns[index].Width;
             }
         }
         finally
         {
             canvas.RestoreToCount(restoreCount);
         }
+    }
+
+    internal static SKShaper.Result ShapeTextRun(
+        SKShaper shaper,
+        DirectionalTextRun run,
+        SKFont font)
+    {
+        using HarfBuzzBuffer buffer = new();
+        buffer.AddUtf16(run.Text);
+        buffer.GuessSegmentProperties();
+        buffer.Direction = run.Direction == TextDirection.RightToLeft
+            ? HarfBuzzDirection.RightToLeft
+            : HarfBuzzDirection.LeftToRight;
+
+        return shaper.Shape(buffer, font);
+    }
+
+    private static void DrawShapedRun(
+        SKCanvas canvas,
+        SKShaper.Result shapedRun,
+        SKFont font,
+        SKPaint paint,
+        float x,
+        float baseline)
+    {
+        if (shapedRun.Codepoints.Length == 0)
+        {
+            return;
+        }
+
+        using SKTextBlobBuilder builder = new();
+        SKPositionedRunBuffer runBuffer = builder.AllocatePositionedRun(
+            font,
+            shapedRun.Codepoints.Length);
+
+        for (int index = 0; index < shapedRun.Codepoints.Length; index++)
+        {
+            runBuffer.Glyphs[index] = checked((ushort)shapedRun.Codepoints[index]);
+            runBuffer.Positions[index] = shapedRun.Points[index];
+        }
+
+        using SKTextBlob blob = builder.Build()
+            ?? throw new InvalidOperationException("SkiaSharp could not build the shaped text run.");
+        canvas.DrawText(blob, x, baseline, paint);
     }
 
     private static SKFont CreateFont(SKTypeface typeface, double sizePt)

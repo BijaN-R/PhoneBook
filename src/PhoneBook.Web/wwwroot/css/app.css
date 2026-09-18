@@ -691,7 +691,7 @@ td .number-input {
 
 .group-row {
     display: grid;
-    grid-template-columns: 1fr 1fr;
+    grid-template-columns: 0.6fr 1.4fr;
     min-height: 1.8em;
     direction: ltr;
 }
@@ -710,13 +710,13 @@ td .number-input {
 }
 
 .entry-extension {
-    justify-content: flex-start;
+    justify-content: center;
     direction: ltr;
-    text-align: left;
+    text-align: center;
 }
 
 .entry-name {
-    justify-content: flex-end;
+    justify-content: flex-start;
     direction: rtl;
     text-align: right;
 }

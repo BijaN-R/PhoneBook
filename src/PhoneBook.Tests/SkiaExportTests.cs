@@ -5,6 +5,7 @@ using PhoneBook.Core.Layout;
 using PhoneBook.Domain.Entities;
 using PhoneBook.Export.Image.Skia;
 using SkiaSharp;
+using SkiaSharp.HarfBuzz;
 using Xunit;
 
 namespace PhoneBook.Tests;
@@ -23,6 +24,53 @@ public sealed class SkiaExportTests : IDisposable
         SkiaPageRenderer renderer = new(_fonts);
         _imageGenerator = new SkiaSharpImageGenerator(renderer);
         _pdfGenerator = new SkiaSharpPdfGenerator(renderer);
+    }
+
+    [Fact]
+    public void Mixed_Persian_And_Latin_Text_Preserves_The_Latin_Run()
+    {
+        IReadOnlyList<DirectionalTextRun> runs = BidirectionalText.GetVisualRuns("واحد IT");
+
+        runs.Select(run => run.Text).Should().Equal("IT", "واحد ");
+        runs.Select(run => run.Direction).Should().Equal(
+            TextDirection.LeftToRight,
+            TextDirection.RightToLeft);
+    }
+
+    [Theory]
+    [InlineData("۱۸۸")]
+    [InlineData("188")]
+    public void Numeric_Text_Is_Shaped_Left_To_Right(string text)
+    {
+        DirectionalTextRun run = BidirectionalText.GetVisualRuns(text).Should().ContainSingle().Subject;
+        using SKFont font = new(_fonts.Regular, 12);
+        using SKShaper shaper = new(_fonts.Regular);
+
+        SKShaper.Result result = SkiaPageRenderer.ShapeTextRun(shaper, run, font);
+
+        run.Direction.Should().Be(TextDirection.LeftToRight);
+        result.Clusters.Should().BeInAscendingOrder();
+    }
+
+    [Fact]
+    public void Persian_Text_Is_Shaped_As_A_Right_To_Left_Joined_Run()
+    {
+        const string text = "سلام";
+        using SKFont font = new(_fonts.Regular, 12);
+        using SKShaper shaper = new(_fonts.Regular);
+
+        SKShaper.Result result = shaper.Shape(text, font);
+
+        result.Codepoints.Should().NotBeEmpty();
+        result.Clusters.Should().NotBeEmpty();
+        result.Clusters.First().Should().BeGreaterThan(result.Clusters.Last());
+        result.Codepoints.Should().NotEqual(font.GetGlyphs(text).Select(glyph => (uint)glyph));
+    }
+
+    [Fact]
+    public void Png_And_Pdf_Entry_Columns_Use_Thirty_Seventy_Proportions()
+    {
+        SkiaPageRenderer.ExtensionColumnRatio.Should().Be(0.30f);
     }
 
     [Fact]

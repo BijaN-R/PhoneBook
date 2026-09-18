@@ -10,6 +10,10 @@ namespace PhoneBook.Export.OpenXml.OpenXml;
 
 public static class TableFactory
 {
+    internal const double ExtensionColumnRatio = 0.30;
+    internal const int ExtensionCellWidthPercent = 1500;
+    internal const int NameCellWidthPercent = 3500;
+
     public static Table CreateMotherTable(
         PageLayout page,
         AppSettings settings,
@@ -107,7 +111,7 @@ public static class TableFactory
         double headerHeightMm = groupHeightMm - (group.Entries.Count * rowHeightMm);
 
         int extensionWidthDxa = checked((int)Math.Round(
-            tableWidthDxa * 0.25,
+            tableWidthDxa * ExtensionColumnRatio,
             MidpointRounding.AwayFromZero));
         int nameWidthDxa = tableWidthDxa - extensionWidthDxa;
         int paddingDxa = MillimetersToDxa(settings.CellPaddingMm);
@@ -158,7 +162,7 @@ public static class TableFactory
 
             TableCell nameCell = new(
                 new TableCellProperties(
-                    CreateCellWidth(nameWidthDxa),
+                    CreatePercentageCellWidth(NameCellWidthPercent),
                     CreateCellMargins(paddingDxa),
                     new TableCellVerticalAlignment { Val = TableVerticalAlignmentValues.Center }),
                 ParagraphFactory.CreateAligned(
@@ -166,10 +170,10 @@ public static class TableFactory
                     settings.PrimaryFontFamily,
                     settings.DefaultFontSizePt,
                     bold: false,
-                    JustificationValues.Right));
+                    JustificationValues.Left));
             TableCell extensionCell = new(
                 new TableCellProperties(
-                    CreateCellWidth(extensionWidthDxa),
+                    CreatePercentageCellWidth(ExtensionCellWidthPercent),
                     CreateCellMargins(paddingDxa),
                     new TableCellVerticalAlignment { Val = TableVerticalAlignmentValues.Center }),
                 ParagraphFactory.CreateAligned(
@@ -261,6 +265,15 @@ public static class TableFactory
         {
             Width = XmlConvert.ToString(widthDxa),
             Type = TableWidthUnitValues.Dxa
+        };
+    }
+
+    private static TableCellWidth CreatePercentageCellWidth(int widthInFiftiethsOfAPercent)
+    {
+        return new TableCellWidth
+        {
+            Width = XmlConvert.ToString(widthInFiftiethsOfAPercent),
+            Type = TableWidthUnitValues.Pct
         };
     }
 
