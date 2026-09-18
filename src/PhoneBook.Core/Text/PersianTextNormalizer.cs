@@ -1,5 +1,6 @@
 // FILE: src/PhoneBook.Core/Text/PersianTextNormalizer.cs
 using System.Text;
+using System.Globalization;
 
 namespace PhoneBook.Core.Text;
 
@@ -89,6 +90,23 @@ public static class PersianTextNormalizer
 
     public static string NormalizeForSearch(string input)
     {
-        return ToEnglishDigits(Normalize(input)).ToLowerInvariant();
+        ArgumentNullException.ThrowIfNull(input);
+
+        string normalized = ToEnglishDigits(Normalize(input));
+        StringBuilder result = new(normalized.Length);
+        foreach (char character in normalized)
+        {
+            UnicodeCategory category = CharUnicodeInfo.GetUnicodeCategory(character);
+            if (category is UnicodeCategory.NonSpacingMark
+                or UnicodeCategory.SpacingCombiningMark
+                or UnicodeCategory.EnclosingMark)
+            {
+                continue;
+            }
+
+            result.Append(char.ToLowerInvariant(character));
+        }
+
+        return result.ToString();
     }
 }

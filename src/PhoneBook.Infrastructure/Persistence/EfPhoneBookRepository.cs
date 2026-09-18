@@ -297,10 +297,13 @@ public sealed class EfPhoneBookRepository(IDbContextFactory<AppDbContext> contex
             .OrderBy(entry => entry.Group.DisplayOrder)
             .ThenBy(entry => entry.DisplayOrder)
             .Select(entry => new PhoneBookSearchRecord(
+                entry.Id,
                 entry.GroupId,
                 entry.Group.Title,
                 entry.Name,
-                entry.Extension))
+                entry.Extension,
+                entry.Group.DisplayOrder,
+                entry.DisplayOrder))
             .ToListAsync(ct);
     }
 

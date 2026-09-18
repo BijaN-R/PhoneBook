@@ -8,7 +8,8 @@ namespace PhoneBook.Application.Services;
 
 public sealed class GroupManagementService(
     IPhoneBookRepository repository,
-    IPhoneBookDataLock dataLock)
+    IPhoneBookDataLock dataLock,
+    PhoneBookSearchService searchService)
 {
     private const int OrderingRetryLimit = 3;
 
@@ -36,7 +37,9 @@ public sealed class GroupManagementService(
 
             try
             {
-                return await repository.InsertGroupAsync(created, ct);
+                PhoneBookGroup inserted = await repository.InsertGroupAsync(created, ct);
+                await searchService.RefreshAsync(ct);
+                return inserted;
             }
             catch (OrderingConflictException) when (attempt < OrderingRetryLimit
                 && (automaticDisplayOrder || automaticPriority))
@@ -54,12 +57,14 @@ public sealed class GroupManagementService(
         await using IAsyncDisposable lease = await dataLock.AcquireAsync(ct);
         GroupUpdateModel updated = group with { Title = group.Title.Trim() };
         await repository.UpdateGroupAsync(updated, ct);
+        await searchService.RefreshAsync(ct);
     }
 
     public async Task DeleteGroupAsync(int id, long expectedRevision, CancellationToken ct = default)
     {
         await using IAsyncDisposable lease = await dataLock.AcquireAsync(ct);
         await repository.DeleteGroupAsync(id, expectedRevision, ct);
+        await searchService.RefreshAsync(ct);
     }
 
     private static PhoneBookGroup Copy(PhoneBookGroup source)

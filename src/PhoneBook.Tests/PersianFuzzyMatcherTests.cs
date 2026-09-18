@@ -12,7 +12,7 @@ public sealed class PersianFuzzyMatcherTests
     [InlineData("کتا", "کتابخانه", true)]
     [InlineData("تاب", "کتابخانه", true)]
     [InlineData("کتاب", "کباب", true)]
-    [InlineData("کتاب", "خراب", true)]
+    [InlineData("کتاب", "خراب", false)]
     [InlineData("کتاب", "سلام", false)]
     public void IsMatch_Handles_Exact_Prefix_Substring_And_Edit_Distances(
         string query,
@@ -27,6 +27,12 @@ public sealed class PersianFuzzyMatcherTests
     {
         PersianFuzzyMatcher.LevenshteinDistance("کتاب", "خراب").Should().Be(2);
         PersianFuzzyMatcher.LevenshteinDistance("کتاب", "سلام").Should().Be(3);
+    }
+
+    [Fact]
+    public void OptimalStringAlignment_Counts_Adjacent_Transposition_As_One_Edit()
+    {
+        PersianFuzzyMatcher.OptimalStringAlignmentDistance("کتاب", "کتبا").Should().Be(1);
     }
 
     [Fact]
@@ -51,5 +57,11 @@ public sealed class PersianFuzzyMatcherTests
         string target = PersianTextNormalizer.NormalizeForSearch("داخلی ١٢۳");
 
         PersianFuzzyMatcher.IsMatch(query, target).Should().BeTrue();
+    }
+
+    [Fact]
+    public void Numeric_Tokens_Are_Not_Fuzzy_Matched()
+    {
+        PersianFuzzyMatcher.IsMatch("188", "189").Should().BeFalse();
     }
 }

@@ -8,7 +8,8 @@ namespace PhoneBook.Application.Services;
 
 public sealed class EntryManagementService(
     IPhoneBookRepository repository,
-    IPhoneBookDataLock dataLock)
+    IPhoneBookDataLock dataLock,
+    PhoneBookSearchService searchService)
 {
     private const int OrderingRetryLimit = 3;
 
@@ -37,7 +38,9 @@ public sealed class EntryManagementService(
 
             try
             {
-                return await repository.InsertEntryAsync(created, ct);
+                PhoneBookEntry inserted = await repository.InsertEntryAsync(created, ct);
+                await searchService.RefreshAsync(ct);
+                return inserted;
             }
             catch (OrderingConflictException) when (attempt < OrderingRetryLimit
                 && automaticDisplayOrder)
@@ -59,12 +62,14 @@ public sealed class EntryManagementService(
             Extension = string.IsNullOrWhiteSpace(entry.Extension) ? null : entry.Extension.Trim()
         };
         await repository.UpdateEntryAsync(updated, ct);
+        await searchService.RefreshAsync(ct);
     }
 
     public async Task DeleteEntryAsync(int id, long expectedRevision, CancellationToken ct = default)
     {
         await using IAsyncDisposable lease = await dataLock.AcquireAsync(ct);
         await repository.DeleteEntryAsync(id, expectedRevision, ct);
+        await searchService.RefreshAsync(ct);
     }
 
     public async Task MoveEntryAsync(
@@ -100,6 +105,7 @@ public sealed class EntryManagementService(
             neighbor.Id,
             neighbor.Revision,
             ct);
+        await searchService.RefreshAsync(ct);
     }
 
     private static PhoneBookEntry Copy(PhoneBookEntry source)

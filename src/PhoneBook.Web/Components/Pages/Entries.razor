@@ -4,7 +4,6 @@
 @attribute [Authorize(Policy = AuthorizationPolicies.AdminOnly)]
 @inject PhoneBookQueryService QueryService
 @inject EntryManagementService EntryService
-@inject PhoneBookSearchService SearchService
 
 <PageTitle>مدیریت داخلی‌ها</PageTitle>
 
@@ -194,7 +193,6 @@ else
 
     private async Task RefreshAndReloadAsync()
     {
-        await SearchService.RefreshAsync();
         await LoadEntriesAsync();
     }
 

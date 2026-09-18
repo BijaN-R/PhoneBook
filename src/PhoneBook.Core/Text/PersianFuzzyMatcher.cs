@@ -3,6 +3,46 @@ namespace PhoneBook.Core.Text;
 
 public static class PersianFuzzyMatcher
 {
+    public static int OptimalStringAlignmentDistance(string a, string b)
+    {
+        ArgumentNullException.ThrowIfNull(a);
+        ArgumentNullException.ThrowIfNull(b);
+
+        int[,] distances = new int[a.Length + 1, b.Length + 1];
+        for (int row = 0; row <= a.Length; row++)
+        {
+            distances[row, 0] = row;
+        }
+
+        for (int column = 0; column <= b.Length; column++)
+        {
+            distances[0, column] = column;
+        }
+
+        for (int row = 1; row <= a.Length; row++)
+        {
+            for (int column = 1; column <= b.Length; column++)
+            {
+                int substitutionCost = a[row - 1] == b[column - 1] ? 0 : 1;
+                int distance = Math.Min(
+                    Math.Min(distances[row - 1, column] + 1, distances[row, column - 1] + 1),
+                    distances[row - 1, column - 1] + substitutionCost);
+
+                if (row > 1
+                    && column > 1
+                    && a[row - 1] == b[column - 2]
+                    && a[row - 2] == b[column - 1])
+                {
+                    distance = Math.Min(distance, distances[row - 2, column - 2] + 1);
+                }
+
+                distances[row, column] = distance;
+            }
+        }
+
+        return distances[a.Length, b.Length];
+    }
+
     public static int LevenshteinDistance(string a, string b)
     {
         ArgumentNullException.ThrowIfNull(a);
@@ -54,8 +94,32 @@ public static class PersianFuzzyMatcher
             return true;
         }
 
-        return normalizedTarget.StartsWith(normalizedQuery, StringComparison.Ordinal)
-            || normalizedTarget.Contains(normalizedQuery, StringComparison.Ordinal)
-            || LevenshteinDistance(normalizedQuery, normalizedTarget) <= 2;
+        if (normalizedTarget.StartsWith(normalizedQuery, StringComparison.Ordinal)
+            || (normalizedQuery.Length >= 3
+                && normalizedTarget.Contains(normalizedQuery, StringComparison.Ordinal)))
+        {
+            return true;
+        }
+
+        if (SearchTextTokenizer.IsNumericStyle(normalizedQuery)
+            || normalizedQuery.Any(char.IsWhiteSpace))
+        {
+            return false;
+        }
+
+        int maximumDistance = normalizedQuery.Length switch
+        {
+            <= 2 => 0,
+            <= 7 => 1,
+            _ => 2
+        };
+        int distance = OptimalStringAlignmentDistance(normalizedQuery, normalizedTarget);
+        if (distance > maximumDistance)
+        {
+            return false;
+        }
+
+        return distance < 2
+            || 1.0 - (double)distance / Math.Max(normalizedQuery.Length, normalizedTarget.Length) >= 0.80;
     }
 }

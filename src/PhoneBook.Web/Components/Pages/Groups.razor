@@ -4,7 +4,6 @@
 @attribute [Authorize(Policy = AuthorizationPolicies.AdminOnly)]
 @inject PhoneBookQueryService QueryService
 @inject GroupManagementService GroupService
-@inject PhoneBookSearchService SearchService
 
 <PageTitle>مدیریت گروه‌ها</PageTitle>
 
@@ -160,7 +159,6 @@
 
     private async Task RefreshAndReloadAsync()
     {
-        await SearchService.RefreshAsync();
         await ReloadAsync();
     }
 
