@@ -2,9 +2,11 @@ using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using PhoneBook.Application.Abstractions.Persistence;
+using PhoneBook.Application.Abstractions;
 using PhoneBook.Infrastructure.Data;
 using PhoneBook.Infrastructure.Identity;
 using PhoneBook.Infrastructure.Persistence;
+using PhoneBook.Infrastructure.Serialization;
 
 namespace PhoneBook.Infrastructure;
 
@@ -25,6 +27,8 @@ public static class DependencyInjection
             .AddDefaultTokenProviders();
         services.AddSingleton<IPhoneBookRepository, EfPhoneBookRepository>();
         services.AddSingleton<IAppSettingsRepository, EfAppSettingsRepository>();
+        services.AddSingleton<IPhoneBookDataTransferRepository, EfPhoneBookDataTransferRepository>();
+        services.AddSingleton<IPhoneBookTransferSerializer, JsonPhoneBookTransferSerializer>();
         services.AddScoped<AdminBootstrapper>();
         services.AddSingleton<DefaultPhoneBookDataInitializer>();
         return services;

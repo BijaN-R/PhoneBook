@@ -1,3 +1,4 @@
+using PhoneBook.Application.Abstractions;
 using PhoneBook.Application.Abstractions.Persistence;
 using PhoneBook.Application.Exceptions;
 using PhoneBook.Application.Models;
@@ -5,7 +6,9 @@ using PhoneBook.Domain.Entities;
 
 namespace PhoneBook.Application.Services;
 
-public sealed class EntryManagementService(IPhoneBookRepository repository)
+public sealed class EntryManagementService(
+    IPhoneBookRepository repository,
+    IPhoneBookDataLock dataLock)
 {
     private const int OrderingRetryLimit = 3;
 
@@ -14,6 +17,7 @@ public sealed class EntryManagementService(IPhoneBookRepository repository)
         CancellationToken ct = default)
     {
         ArgumentNullException.ThrowIfNull(entry);
+        await using IAsyncDisposable lease = await dataLock.AcquireAsync(ct);
 
         if (await repository.GetGroupAsync(entry.GroupId, ct) is null)
         {
@@ -45,20 +49,22 @@ public sealed class EntryManagementService(IPhoneBookRepository repository)
             "Could not assign a unique entry order after several attempts.");
     }
 
-    public Task UpdateEntryAsync(EntryUpdateModel entry, CancellationToken ct = default)
+    public async Task UpdateEntryAsync(EntryUpdateModel entry, CancellationToken ct = default)
     {
         ArgumentNullException.ThrowIfNull(entry);
+        await using IAsyncDisposable lease = await dataLock.AcquireAsync(ct);
         EntryUpdateModel updated = entry with
         {
             Name = entry.Name.Trim(),
             Extension = string.IsNullOrWhiteSpace(entry.Extension) ? null : entry.Extension.Trim()
         };
-        return repository.UpdateEntryAsync(updated, ct);
+        await repository.UpdateEntryAsync(updated, ct);
     }
 
-    public Task DeleteEntryAsync(int id, long expectedRevision, CancellationToken ct = default)
+    public async Task DeleteEntryAsync(int id, long expectedRevision, CancellationToken ct = default)
     {
-        return repository.DeleteEntryAsync(id, expectedRevision, ct);
+        await using IAsyncDisposable lease = await dataLock.AcquireAsync(ct);
+        await repository.DeleteEntryAsync(id, expectedRevision, ct);
     }
 
     public async Task MoveEntryAsync(
@@ -71,6 +77,8 @@ public sealed class EntryManagementService(IPhoneBookRepository repository)
         {
             throw new ArgumentOutOfRangeException(nameof(offset), "Offset must be -1 or 1.");
         }
+
+        await using IAsyncDisposable lease = await dataLock.AcquireAsync(ct);
 
         PhoneBookEntry moving = await repository.GetEntryAsync(entryId, ct)
             ?? throw new KeyNotFoundException($"Entry {entryId} was not found.");

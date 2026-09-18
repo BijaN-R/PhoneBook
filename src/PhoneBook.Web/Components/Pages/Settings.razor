@@ -3,6 +3,8 @@
 @rendermode InteractiveServer
 @attribute [Authorize(Policy = AuthorizationPolicies.AdminOnly)]
 @inject SettingsService SettingsService
+@inject PhoneBookDataTransferService DataTransferService
+@inject IJSRuntime JS
 
 <PageTitle>تنظیمات دفترچه</PageTitle>
 
@@ -49,6 +51,82 @@ else
         </div>
     </section>
 
+    <section class="panel data-management-panel">
+        <div class="section-title">
+            <div>
+                <span class="eyebrow">پشتیبان‌گیری و بازیابی</span>
+                <h2>مدیریت داده‌ها</h2>
+                <p class="muted">فایل JSON شامل سربرگ، تنظیمات، گروه‌ها و داخلی‌هاست و اطلاعات حساب‌های کاربری را در بر نمی‌گیرد.</p>
+            </div>
+            <button class="button" disabled="@_transferBusy" @onclick="ExportBackupAsync">دریافت پشتیبان JSON</button>
+        </div>
+
+        <div class="import-box">
+            <div>
+                <strong>بازیابی از فایل JSON</strong>
+                <p class="muted">ابتدا فایل را انتخاب و اعتبارسنجی کنید. تا قبل از تأیید نهایی هیچ داده‌ای تغییر نمی‌کند.</p>
+            </div>
+            <label class="file-picker">
+                انتخاب فایل پشتیبان
+                <InputFile OnChange="SelectImportFile" accept="application/json,.json" disabled="@_transferBusy" />
+            </label>
+            @if (_selectedFile is not null)
+            {
+                <div class="selected-file">
+                    <span dir="ltr">@_selectedFile.Name</span>
+                    <small>@FormatFileSize(_selectedFile.Size)</small>
+                </div>
+                <button class="button primary" disabled="@_transferBusy" @onclick="ValidateImportAsync">اعتبارسنجی و پیش‌نمایش</button>
+            }
+        </div>
+
+        @if (_importPreview is not null)
+        {
+            <div class="import-preview">
+                <div class="import-summary">
+                    <article><span>گروه‌ها</span><strong>@ToPersianNumber(_importPreview.Summary.GroupCount)</strong></article>
+                    <article><span>داخلی‌ها</span><strong>@ToPersianNumber(_importPreview.Summary.EntryCount)</strong></article>
+                    <article><span>گروه فعال / غیرفعال</span><strong>@ToPersianNumber(_importPreview.Summary.ActiveGroupCount) / @ToPersianNumber(_importPreview.Summary.InactiveGroupCount)</strong></article>
+                    <article><span>داخلی فعال / غیرفعال</span><strong>@ToPersianNumber(_importPreview.Summary.ActiveEntryCount) / @ToPersianNumber(_importPreview.Summary.InactiveEntryCount)</strong></article>
+                </div>
+
+                @if (_importPreview.Issues.Count > 0)
+                {
+                    <div class="import-issues">
+                        @foreach (PhoneBookImportIssue issue in _importPreview.Issues)
+                        {
+                            <div class="import-issue @(issue.Severity == PhoneBookImportIssueSeverity.Error ? "error" : "warning")">
+                                <strong>@(issue.Severity == PhoneBookImportIssueSeverity.Error ? "خطا" : "هشدار")</strong>
+                                <span>@issue.Message</span>
+                                <code dir="ltr">@issue.Path</code>
+                            </div>
+                        }
+                    </div>
+                }
+
+                @if (_importPreview.CanApply)
+                {
+                    <div class="replace-confirmation">
+                        <p><strong>توجه:</strong> این عملیات تمام گروه‌ها، داخلی‌ها، سربرگ و تنظیمات فعلی دفترچه را جایگزین می‌کند. حساب‌های مدیران بدون تغییر باقی می‌مانند.</p>
+                        <label class="check-field">
+                            <input type="checkbox" @bind="_replaceConfirmed" /> جایگزینی کامل داده‌های فعلی را تأیید می‌کنم.
+                        </label>
+                        <button class="button danger-button" disabled="@(_transferBusy || !_replaceConfirmed)" @onclick="ApplyImportAsync">بازیابی و جایگزینی داده‌ها</button>
+                    </div>
+                }
+                else
+                {
+                    <p class="status-message error">تا زمانی که خطاهای فایل برطرف نشوند، بازیابی امکان‌پذیر نیست.</p>
+                }
+            </div>
+        }
+
+        @if (!string.IsNullOrWhiteSpace(_transferMessage))
+        {
+            <p class="status-message @(_transferHasError ? "error" : "success")">@_transferMessage</p>
+        }
+    </section>
+
     <div class="sticky-actions">
         <button class="button primary" disabled="@_saving" @onclick="SaveAsync">ذخیره تنظیمات</button>
         @if (!string.IsNullOrWhiteSpace(_message))
@@ -68,6 +146,12 @@ else
     private bool _hasError;
     private bool _hasConflict;
     private string? _message;
+    private IBrowserFile? _selectedFile;
+    private PhoneBookImportPreview? _importPreview;
+    private bool _replaceConfirmed;
+    private bool _transferBusy;
+    private bool _transferHasError;
+    private string? _transferMessage;
 
     protected override async Task OnInitializedAsync()
     {
@@ -122,6 +206,137 @@ else
         _hasConflict = false;
         _hasError = false;
         _message = "آخرین نسخه تنظیمات بارگذاری شد.";
+    }
+
+    private async Task ExportBackupAsync()
+    {
+        if (_transferBusy)
+        {
+            return;
+        }
+
+        _transferBusy = true;
+        ClearTransferMessage();
+        try
+        {
+            PhoneBookExportResult export = await DataTransferService.ExportAsync();
+            await JS.InvokeVoidAsync(
+                "phoneBookDownload",
+                export.FileName,
+                export.ContentType,
+                Convert.ToBase64String(export.Content));
+            _transferMessage = "فایل پشتیبان JSON آماده و دریافت شد.";
+        }
+        catch
+        {
+            ShowTransferError("ساخت فایل پشتیبان انجام نشد. دوباره تلاش کنید.");
+        }
+        finally
+        {
+            _transferBusy = false;
+        }
+    }
+
+    private void SelectImportFile(InputFileChangeEventArgs args)
+    {
+        _selectedFile = args.File;
+        _importPreview = null;
+        _replaceConfirmed = false;
+        ClearTransferMessage();
+        if (_selectedFile.Size > PhoneBookDataTransferService.MaximumUploadBytes)
+        {
+            ShowTransferError("حجم فایل JSON نباید بیشتر از ۵ مگابایت باشد.");
+        }
+    }
+
+    private async Task ValidateImportAsync()
+    {
+        if (_selectedFile is null || _transferBusy)
+        {
+            return;
+        }
+
+        _transferBusy = true;
+        _importPreview = null;
+        _replaceConfirmed = false;
+        ClearTransferMessage();
+        try
+        {
+            await using Stream stream = _selectedFile.OpenReadStream(
+                PhoneBookDataTransferService.MaximumUploadBytes);
+            using MemoryStream buffer = new();
+            await stream.CopyToAsync(buffer);
+            _importPreview = await DataTransferService.ValidateImportAsync(buffer.ToArray());
+            _transferMessage = _importPreview.CanApply
+                ? "فایل معتبر است؛ پیش‌نمایش را بررسی و در صورت اطمینان تأیید کنید."
+                : "فایل دارای خطاست و قابل بازیابی نیست.";
+            _transferHasError = !_importPreview.CanApply;
+        }
+        catch (IOException)
+        {
+            ShowTransferError("خواندن فایل ممکن نبود یا حجم آن بیش از حد مجاز است.");
+        }
+        catch
+        {
+            ShowTransferError("اعتبارسنجی فایل انجام نشد. فایل دیگری انتخاب کنید.");
+        }
+        finally
+        {
+            _transferBusy = false;
+        }
+    }
+
+    private async Task ApplyImportAsync()
+    {
+        if (_transferBusy || !_replaceConfirmed || _importPreview?.CanApply != true
+            || _importPreview.Document is null)
+        {
+            return;
+        }
+
+        _transferBusy = true;
+        ClearTransferMessage();
+        try
+        {
+            PhoneBookImportResult result = await DataTransferService.ApplyImportAsync(
+                _importPreview.Document);
+            _settings = await SettingsService.GetAsync();
+            _transferMessage = $"بازیابی کامل شد: {ToPersianNumber(result.Summary.GroupCount)} گروه و {ToPersianNumber(result.Summary.EntryCount)} داخلی جایگزین شدند.";
+            _selectedFile = null;
+            _importPreview = null;
+            _replaceConfirmed = false;
+        }
+        catch
+        {
+            ShowTransferError("بازیابی انجام نشد و داده‌های قبلی حفظ شدند.");
+        }
+        finally
+        {
+            _transferBusy = false;
+        }
+    }
+
+    private static string FormatFileSize(long bytes)
+    {
+        double kilobytes = bytes / 1024d;
+        return $"{PersianTextNormalizer.ToPersianDigits(kilobytes.ToString("0.#", CultureInfo.InvariantCulture))} کیلوبایت";
+    }
+
+    private static string ToPersianNumber(int value)
+    {
+        return PersianTextNormalizer.ToPersianDigits(value.ToString(CultureInfo.InvariantCulture));
+    }
+
+    private void ClearTransferMessage()
+    {
+        _transferHasError = false;
+        _transferMessage = null;
+    }
+
+    private void ShowTransferError(string message)
+    {
+        _transferHasError = true;
+        _transferMessage = message;
     }
 
     private static string? Validate(AppSettings settings)

@@ -4,6 +4,7 @@ using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.Data.Sqlite;
 using PhoneBook.Application.Services;
+using PhoneBook.Application.Abstractions;
 using PhoneBook.Core.Layout;
 using PhoneBook.Export.Image.Skia;
 using PhoneBook.Export.OpenXml.OpenXml;
@@ -74,11 +75,13 @@ builder.Services.AddSingleton(_ => new FontProvider(fontsPath));
 builder.Services.AddSingleton<ITextMeasurer, SkiaTextMeasurer>();
 builder.Services.AddSingleton<LayoutEngine>();
 builder.Services.AddSingleton<PhoneBookQueryService>();
+builder.Services.AddSingleton<IPhoneBookDataLock, PhoneBookDataLock>();
 builder.Services.AddSingleton<GroupManagementService>();
 builder.Services.AddSingleton<EntryManagementService>();
 builder.Services.AddSingleton<SettingsService>();
 builder.Services.AddSingleton<PhoneBookSearchService>();
 builder.Services.AddSingleton<PhoneBookDocumentService>();
+builder.Services.AddSingleton<PhoneBookDataTransferService>();
 builder.Services.AddSingleton(serviceProvider => new OpenXmlPhoneBookGenerator(
     serviceProvider.GetRequiredService<ITextMeasurer>(),
     fontsPath));

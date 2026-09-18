@@ -1,3 +1,4 @@
+using PhoneBook.Application.Abstractions;
 using PhoneBook.Application.Abstractions.Persistence;
 using PhoneBook.Application.Exceptions;
 using PhoneBook.Application.Models;
@@ -5,7 +6,9 @@ using PhoneBook.Domain.Entities;
 
 namespace PhoneBook.Application.Services;
 
-public sealed class GroupManagementService(IPhoneBookRepository repository)
+public sealed class GroupManagementService(
+    IPhoneBookRepository repository,
+    IPhoneBookDataLock dataLock)
 {
     private const int OrderingRetryLimit = 3;
 
@@ -14,6 +17,7 @@ public sealed class GroupManagementService(IPhoneBookRepository repository)
         CancellationToken ct = default)
     {
         ArgumentNullException.ThrowIfNull(group);
+        await using IAsyncDisposable lease = await dataLock.AcquireAsync(ct);
 
         bool automaticDisplayOrder = group.DisplayOrder <= 0;
         bool automaticPriority = group.Priority <= 0;
@@ -44,16 +48,18 @@ public sealed class GroupManagementService(IPhoneBookRepository repository)
             "Could not assign a unique group order after several attempts.");
     }
 
-    public Task UpdateGroupAsync(GroupUpdateModel group, CancellationToken ct = default)
+    public async Task UpdateGroupAsync(GroupUpdateModel group, CancellationToken ct = default)
     {
         ArgumentNullException.ThrowIfNull(group);
+        await using IAsyncDisposable lease = await dataLock.AcquireAsync(ct);
         GroupUpdateModel updated = group with { Title = group.Title.Trim() };
-        return repository.UpdateGroupAsync(updated, ct);
+        await repository.UpdateGroupAsync(updated, ct);
     }
 
-    public Task DeleteGroupAsync(int id, long expectedRevision, CancellationToken ct = default)
+    public async Task DeleteGroupAsync(int id, long expectedRevision, CancellationToken ct = default)
     {
-        return repository.DeleteGroupAsync(id, expectedRevision, ct);
+        await using IAsyncDisposable lease = await dataLock.AcquireAsync(ct);
+        await repository.DeleteGroupAsync(id, expectedRevision, ct);
     }
 
     private static PhoneBookGroup Copy(PhoneBookGroup source)

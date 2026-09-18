@@ -1,10 +1,13 @@
+using PhoneBook.Application.Abstractions;
 using PhoneBook.Application.Abstractions.Persistence;
 using PhoneBook.Application.Models;
 using PhoneBook.Domain.Entities;
 
 namespace PhoneBook.Application.Services;
 
-public sealed class SettingsService(IAppSettingsRepository repository) : IDisposable
+public sealed class SettingsService(
+    IAppSettingsRepository repository,
+    IPhoneBookDataLock dataLock) : IDisposable
 {
     private readonly SemaphoreSlim _gate = new(1, 1);
     private AppSettings? _cached;
@@ -47,6 +50,7 @@ public sealed class SettingsService(IAppSettingsRepository repository) : IDispos
     public async Task UpdateAsync(AppSettings settings, CancellationToken ct = default)
     {
         ArgumentNullException.ThrowIfNull(settings);
+        await using IAsyncDisposable lease = await dataLock.AcquireAsync(ct);
 
         AppSettings requested = Clone(settings);
         if (requested.Id <= 0)
