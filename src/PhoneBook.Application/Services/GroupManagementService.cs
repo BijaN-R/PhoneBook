@@ -1,52 +1,59 @@
 using PhoneBook.Application.Abstractions.Persistence;
+using PhoneBook.Application.Exceptions;
+using PhoneBook.Application.Models;
 using PhoneBook.Domain.Entities;
 
 namespace PhoneBook.Application.Services;
 
 public sealed class GroupManagementService(IPhoneBookRepository repository)
 {
+    private const int OrderingRetryLimit = 3;
+
     public async Task<PhoneBookGroup> CreateGroupAsync(
         PhoneBookGroup group,
         CancellationToken ct = default)
     {
         ArgumentNullException.ThrowIfNull(group);
 
-        PhoneBookGroup created = Copy(group);
-        if (created.DisplayOrder <= 0)
+        bool automaticDisplayOrder = group.DisplayOrder <= 0;
+        bool automaticPriority = group.Priority <= 0;
+        for (int attempt = 1; attempt <= OrderingRetryLimit; attempt++)
         {
-            created.DisplayOrder = await repository.GetMaximumGroupDisplayOrderAsync(ct) + 1;
+            PhoneBookGroup created = Copy(group);
+            if (automaticDisplayOrder)
+            {
+                created.DisplayOrder = await repository.GetMaximumGroupDisplayOrderAsync(ct) + 1;
+            }
+
+            if (automaticPriority)
+            {
+                created.Priority = await repository.GetMaximumGroupPriorityAsync(ct) + 1;
+            }
+
+            try
+            {
+                return await repository.InsertGroupAsync(created, ct);
+            }
+            catch (OrderingConflictException) when (attempt < OrderingRetryLimit
+                && (automaticDisplayOrder || automaticPriority))
+            {
+            }
         }
 
-        if (created.Priority <= 0)
-        {
-            created.Priority = await repository.GetMaximumGroupPriorityAsync(ct) + 1;
-        }
-
-        return await repository.InsertGroupAsync(created, ct);
+        throw new OrderingConflictException(
+            "Could not assign a unique group order after several attempts.");
     }
 
-    public async Task UpdateGroupAsync(PhoneBookGroup group, CancellationToken ct = default)
+    public Task UpdateGroupAsync(GroupUpdateModel group, CancellationToken ct = default)
     {
         ArgumentNullException.ThrowIfNull(group);
-
-        PhoneBookGroup updated = Copy(group);
-        updated.Id = group.Id;
-        if (updated.DisplayOrder <= 0)
-        {
-            updated.DisplayOrder = await repository.GetMaximumGroupDisplayOrderAsync(ct) + 1;
-        }
-
-        if (updated.Priority <= 0)
-        {
-            updated.Priority = await repository.GetMaximumGroupPriorityAsync(ct) + 1;
-        }
-
-        await repository.UpdateGroupAsync(updated, ct);
+        GroupUpdateModel updated = group with { Title = group.Title.Trim() };
+        return repository.UpdateGroupAsync(updated, ct);
     }
 
-    public Task DeleteGroupAsync(int id, CancellationToken ct = default)
+    public Task DeleteGroupAsync(int id, long expectedRevision, CancellationToken ct = default)
     {
-        return repository.DeleteGroupAsync(id, ct);
+        return repository.DeleteGroupAsync(id, expectedRevision, ct);
     }
 
     private static PhoneBookGroup Copy(PhoneBookGroup source)
@@ -59,7 +66,8 @@ public sealed class GroupManagementService(IPhoneBookRepository repository)
             DisplayOrder = source.DisplayOrder,
             Required = source.Required,
             KeepTogether = source.KeepTogether,
-            IsActive = source.IsActive
+            IsActive = source.IsActive,
+            Revision = 1
         };
     }
 }

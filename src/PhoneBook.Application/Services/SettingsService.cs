@@ -1,4 +1,5 @@
 using PhoneBook.Application.Abstractions.Persistence;
+using PhoneBook.Application.Models;
 using PhoneBook.Domain.Entities;
 
 namespace PhoneBook.Application.Services;
@@ -28,14 +29,29 @@ public sealed class SettingsService(IAppSettingsRepository repository) : IDispos
         }
     }
 
+    public async Task<AppSettings> ReloadAsync(CancellationToken ct = default)
+    {
+        await _gate.WaitAsync(ct);
+        try
+        {
+            _cached = await repository.GetAsync(ct)
+                ?? throw new InvalidOperationException("The AppSettings row is missing from the database.");
+            return Clone(_cached);
+        }
+        finally
+        {
+            _gate.Release();
+        }
+    }
+
     public async Task UpdateAsync(AppSettings settings, CancellationToken ct = default)
     {
         ArgumentNullException.ThrowIfNull(settings);
 
-        AppSettings updated = Clone(settings);
-        if (updated.Id <= 0)
+        AppSettings requested = Clone(settings);
+        if (requested.Id <= 0)
         {
-            updated.Id = 1;
+            requested.Id = 1;
         }
 
         await _gate.WaitAsync(ct);
@@ -43,14 +59,17 @@ public sealed class SettingsService(IAppSettingsRepository repository) : IDispos
         {
             if (await repository.GetAsync(ct) is null)
             {
-                await repository.InsertAsync(updated, ct);
+                requested.Revision = 1;
+                await repository.InsertAsync(requested, ct);
+                _cached = Clone(requested);
             }
             else
             {
-                await repository.UpdateAsync(updated, ct);
+                AppSettings updated = await repository.UpdateAsync(
+                    SettingsUpdateModel.FromEntity(requested),
+                    ct);
+                _cached = Clone(updated);
             }
-
-            _cached = Clone(updated);
         }
         finally
         {
@@ -68,6 +87,7 @@ public sealed class SettingsService(IAppSettingsRepository repository) : IDispos
         return new AppSettings
         {
             Id = source.Id,
+            Revision = source.Revision,
             PageWidthMm = source.PageWidthMm,
             PageHeightMm = source.PageHeightMm,
             MarginTopMm = source.MarginTopMm,

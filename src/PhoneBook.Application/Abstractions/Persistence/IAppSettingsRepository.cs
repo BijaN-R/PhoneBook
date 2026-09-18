@@ -1,4 +1,5 @@
 using PhoneBook.Domain.Entities;
+using PhoneBook.Application.Models;
 
 namespace PhoneBook.Application.Abstractions.Persistence;
 
@@ -8,5 +9,5 @@ public interface IAppSettingsRepository
 
     Task InsertAsync(AppSettings settings, CancellationToken ct = default);
 
-    Task UpdateAsync(AppSettings settings, CancellationToken ct = default);
+    Task<AppSettings> UpdateAsync(SettingsUpdateModel settings, CancellationToken ct = default);
 }

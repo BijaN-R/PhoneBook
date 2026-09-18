@@ -7,6 +7,8 @@ public sealed class PhoneBookGroup
 {
     public int Id { get; set; }
 
+    public long Revision { get; set; } = 1;
+
     public string Title { get; set; } = string.Empty;
 
     public int Priority { get; set; }

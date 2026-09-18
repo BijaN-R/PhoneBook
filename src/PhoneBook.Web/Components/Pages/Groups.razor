@@ -85,7 +85,7 @@
                         <td><input aria-label="فعال" type="checkbox" @bind="group.IsActive" /></td>
                         <td class="row-actions">
                             <button class="text-button" disabled="@_busy" @onclick="() => SaveAsync(group)">ذخیره</button>
-                            <button class="text-button danger" disabled="@_busy" @onclick="() => DeleteAsync(group.Id)">حذف</button>
+                            <button class="text-button danger" disabled="@_busy" @onclick="() => DeleteAsync(group)">حذف</button>
                         </td>
                     </tr>
                 }
@@ -97,6 +97,10 @@
 @if (!string.IsNullOrWhiteSpace(_message))
 {
     <p class="toast @(_hasError ? "error" : "success")">@_message</p>
+    @if (_hasConflict)
+    {
+        <button class="toast-reload" disabled="@_busy" @onclick="ReloadAfterConflictAsync">بارگذاری آخرین نسخه</button>
+    }
 }
 
 @code {
@@ -109,6 +113,7 @@
     private IReadOnlyList<PhoneBookGroup> _groups = [];
     private bool _busy;
     private bool _hasError;
+    private bool _hasConflict;
     private string? _message;
 
     protected override Task OnInitializedAsync()
@@ -139,16 +144,16 @@
     {
         return RunMutationAsync(async () =>
         {
-            await GroupService.UpdateGroupAsync(group);
+            await GroupService.UpdateGroupAsync(GroupUpdateModel.FromEntity(group));
             await RefreshAndReloadAsync();
         }, "تغییرات گروه ذخیره شد.");
     }
 
-    private Task DeleteAsync(int id)
+    private Task DeleteAsync(PhoneBookGroup group)
     {
         return RunMutationAsync(async () =>
         {
-            await GroupService.DeleteGroupAsync(id);
+            await GroupService.DeleteGroupAsync(group.Id, group.Revision);
             await RefreshAndReloadAsync();
         }, "گروه و داخلی‌های آن حذف شدند.");
     }
@@ -173,11 +178,21 @@
 
         _busy = true;
         _message = null;
+        _hasConflict = false;
         try
         {
             await mutation();
             _hasError = false;
             _message = successMessage;
+        }
+        catch (ConcurrencyConflictException)
+        {
+            _hasConflict = true;
+            ShowError("این گروه پس از بازشدن صفحه توسط مدیر دیگری تغییر کرده یا حذف شده است.");
+        }
+        catch (OrderingConflictException)
+        {
+            ShowError("ترتیب انتخاب‌شده هم‌زمان توسط مدیر دیگری استفاده شد؛ دوباره تلاش کنید.");
         }
         catch (Exception exception)
         {
@@ -187,6 +202,13 @@
         {
             _busy = false;
         }
+    }
+
+    private async Task ReloadAfterConflictAsync()
+    {
+        _hasConflict = false;
+        _message = null;
+        await ReloadAsync();
     }
 
     private void ShowError(string message)

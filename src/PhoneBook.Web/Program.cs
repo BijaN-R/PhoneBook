@@ -9,6 +9,7 @@ using PhoneBook.Export.Image.Skia;
 using PhoneBook.Export.OpenXml.OpenXml;
 using PhoneBook.Infrastructure;
 using PhoneBook.Infrastructure.Identity;
+using PhoneBook.Infrastructure.Data;
 using PhoneBook.Web.Components;
 using PhoneBook.Web.Security;
 
@@ -101,6 +102,9 @@ try
     await bootstrapper.BootstrapAsync(
         builder.Configuration["AdminBootstrap:Email"],
         builder.Configuration["AdminBootstrap:Password"]);
+    DefaultPhoneBookDataInitializer dataInitializer =
+        scope.ServiceProvider.GetRequiredService<DefaultPhoneBookDataInitializer>();
+    await dataInitializer.InitializeAsync();
 }
 catch (SqliteException exception)
 {

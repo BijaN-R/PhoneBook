@@ -1,5 +1,7 @@
 using Microsoft.EntityFrameworkCore;
 using PhoneBook.Application.Abstractions.Persistence;
+using PhoneBook.Application.Exceptions;
+using PhoneBook.Application.Models;
 using PhoneBook.Domain.Entities;
 using PhoneBook.Infrastructure.Data;
 
@@ -23,27 +25,44 @@ public sealed class EfAppSettingsRepository(IDbContextFactory<AppDbContext> cont
         await context.SaveChangesAsync(ct);
     }
 
-    public async Task UpdateAsync(AppSettings settings, CancellationToken ct = default)
+    public async Task<AppSettings> UpdateAsync(SettingsUpdateModel settings, CancellationToken ct = default)
     {
         ArgumentNullException.ThrowIfNull(settings);
 
         await using AppDbContext context = await contextFactory.CreateDbContextAsync(ct);
-        AppSettings existing = await context.AppSettings.SingleOrDefaultAsync(
+        AppSettings? existing = await context.AppSettings.SingleOrDefaultAsync(
             item => item.Id == settings.Id,
-            ct) ?? throw new KeyNotFoundException($"App settings {settings.Id} were not found.");
+            ct);
+        if (existing is null)
+        {
+            throw new ConcurrencyConflictException("The settings were deleted by another administrator.");
+        }
 
+        context.Entry(existing).Property(item => item.Revision).OriginalValue = settings.ExpectedRevision;
         CopyValues(settings, existing);
-        await context.SaveChangesAsync(ct);
+        existing.Revision = settings.ExpectedRevision + 1;
+        try
+        {
+            await context.SaveChangesAsync(ct);
+        }
+        catch (DbUpdateConcurrencyException exception)
+        {
+            throw new ConcurrencyConflictException(
+                "The settings changed after they were loaded.",
+                exception);
+        }
+
+        return Clone(existing);
     }
 
     private static AppSettings Clone(AppSettings source)
     {
-        AppSettings clone = new() { Id = source.Id };
+        AppSettings clone = new() { Id = source.Id, Revision = source.Revision };
         CopyValues(source, clone);
         return clone;
     }
 
-    private static void CopyValues(AppSettings source, AppSettings destination)
+    private static void CopyValues(SettingsUpdateModel source, AppSettings destination)
     {
         destination.PageWidthMm = source.PageWidthMm;
         destination.PageHeightMm = source.PageHeightMm;
@@ -60,5 +79,10 @@ public sealed class EfAppSettingsRepository(IDbContextFactory<AppDbContext> cont
         destination.HeaderFontSizePt = source.HeaderFontSizePt;
         destination.GroupHeaderFontSizePt = source.GroupHeaderFontSizePt;
         destination.PriorityTopLimit = source.PriorityTopLimit;
+    }
+
+    private static void CopyValues(AppSettings source, AppSettings destination)
+    {
+        CopyValues(SettingsUpdateModel.FromEntity(source), destination);
     }
 }

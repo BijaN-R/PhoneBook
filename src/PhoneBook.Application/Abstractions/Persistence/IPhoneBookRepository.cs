@@ -28,19 +28,21 @@ public interface IPhoneBookRepository
 
     Task<PhoneBookGroup> InsertGroupAsync(PhoneBookGroup group, CancellationToken ct = default);
 
-    Task UpdateGroupAsync(PhoneBookGroup group, CancellationToken ct = default);
+    Task UpdateGroupAsync(GroupUpdateModel group, CancellationToken ct = default);
 
-    Task DeleteGroupAsync(int id, CancellationToken ct = default);
+    Task DeleteGroupAsync(int id, long expectedRevision, CancellationToken ct = default);
 
     Task<PhoneBookEntry> InsertEntryAsync(PhoneBookEntry entry, CancellationToken ct = default);
 
-    Task UpdateEntryAsync(PhoneBookEntry entry, CancellationToken ct = default);
+    Task UpdateEntryAsync(EntryUpdateModel entry, CancellationToken ct = default);
 
-    Task DeleteEntryAsync(int id, CancellationToken ct = default);
+    Task DeleteEntryAsync(int id, long expectedRevision, CancellationToken ct = default);
 
     Task SwapEntryDisplayOrdersAsync(
         int firstEntryId,
+        long firstExpectedRevision,
         int secondEntryId,
+        long secondExpectedRevision,
         CancellationToken ct = default);
 
     Task<IReadOnlyList<PhoneBookSearchRecord>> GetActiveSearchRecordsAsync(

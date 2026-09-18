@@ -87,12 +87,12 @@ else
                                 <td><input class="number-input" type="number" min="1" @bind="entry.DisplayOrder" /></td>
                                 <td><input aria-label="فعال" type="checkbox" @bind="entry.IsActive" /></td>
                                 <td class="reorder-actions">
-                                    <button title="انتقال به بالا" disabled="@(_busy || rowIndex == 0)" @onclick="() => MoveAsync(entry.Id, -1)">↑</button>
-                                    <button title="انتقال به پایین" disabled="@(_busy || rowIndex == _entries.Count - 1)" @onclick="() => MoveAsync(entry.Id, 1)">↓</button>
+                                    <button title="انتقال به بالا" disabled="@(_busy || rowIndex == 0)" @onclick="() => MoveAsync(entry, -1)">↑</button>
+                                    <button title="انتقال به پایین" disabled="@(_busy || rowIndex == _entries.Count - 1)" @onclick="() => MoveAsync(entry, 1)">↓</button>
                                 </td>
                                 <td class="row-actions">
                                     <button class="text-button" disabled="@_busy" @onclick="() => SaveAsync(entry)">ذخیره</button>
-                                    <button class="text-button danger" disabled="@_busy" @onclick="() => DeleteAsync(entry.Id)">حذف</button>
+                                    <button class="text-button danger" disabled="@_busy" @onclick="() => DeleteAsync(entry)">حذف</button>
                                 </td>
                             </tr>
                         }
@@ -106,6 +106,10 @@ else
 @if (!string.IsNullOrWhiteSpace(_message))
 {
     <p class="toast @(_hasError ? "error" : "success")">@_message</p>
+    @if (_hasConflict)
+    {
+        <button class="toast-reload" disabled="@_busy" @onclick="ReloadAfterConflictAsync">بارگذاری آخرین نسخه</button>
+    }
 }
 
 @code {
@@ -115,6 +119,7 @@ else
     private int _selectedGroupId;
     private bool _busy;
     private bool _hasError;
+    private bool _hasConflict;
     private string? _message;
 
     private string CurrentGroupTitle => _groups
@@ -164,25 +169,25 @@ else
     {
         return RunMutationAsync(async () =>
         {
-            await EntryService.UpdateEntryAsync(entry);
+            await EntryService.UpdateEntryAsync(EntryUpdateModel.FromEntity(entry));
             await RefreshAndReloadAsync();
         }, "تغییرات داخلی ذخیره شد.");
     }
 
-    private Task DeleteAsync(int id)
+    private Task DeleteAsync(PhoneBookEntry entry)
     {
         return RunMutationAsync(async () =>
         {
-            await EntryService.DeleteEntryAsync(id);
+            await EntryService.DeleteEntryAsync(entry.Id, entry.Revision);
             await RefreshAndReloadAsync();
         }, "داخلی حذف شد.");
     }
 
-    private Task MoveAsync(int id, int offset)
+    private Task MoveAsync(PhoneBookEntry entry, int offset)
     {
         return RunMutationAsync(async () =>
         {
-            await EntryService.MoveEntryAsync(id, offset);
+            await EntryService.MoveEntryAsync(entry.Id, entry.Revision, offset);
             await RefreshAndReloadAsync();
         }, "ترتیب داخلی‌ها تغییر کرد.");
     }
@@ -202,11 +207,21 @@ else
 
         _busy = true;
         _message = null;
+        _hasConflict = false;
         try
         {
             await mutation();
             _hasError = false;
             _message = successMessage;
+        }
+        catch (ConcurrencyConflictException)
+        {
+            _hasConflict = true;
+            ShowError("این داخلی یا ترتیب آن پس از بازشدن صفحه توسط مدیر دیگری تغییر کرده است.");
+        }
+        catch (OrderingConflictException)
+        {
+            ShowError("ترتیب داخلی هم‌زمان توسط مدیر دیگری استفاده شد؛ دوباره تلاش کنید.");
         }
         catch (Exception exception)
         {
@@ -216,6 +231,13 @@ else
         {
             _busy = false;
         }
+    }
+
+    private async Task ReloadAfterConflictAsync()
+    {
+        _hasConflict = false;
+        _message = null;
+        await LoadEntriesAsync();
     }
 
     private void ShowError(string message)

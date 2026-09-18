@@ -843,6 +843,22 @@ td .number-input {
     box-shadow: var(--shadow);
 }
 
+.toast-reload {
+    position: fixed;
+    z-index: 41;
+    right: 2rem;
+    bottom: 1.7rem;
+    padding: .35rem .7rem;
+    border: 1px solid var(--danger);
+    border-radius: 8px;
+    background: #fff;
+    color: var(--danger);
+    cursor: pointer;
+    font: inherit;
+    font-size: .78rem;
+    font-weight: 700;
+}
+
 .settings-sections {
     display: grid;
     grid-template-columns: repeat(2, minmax(0, 1fr));

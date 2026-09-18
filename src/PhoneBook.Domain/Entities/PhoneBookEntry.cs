@@ -5,6 +5,8 @@ public sealed class PhoneBookEntry
 {
     public int Id { get; set; }
 
+    public long Revision { get; set; } = 1;
+
     public int GroupId { get; set; }
 
     public PhoneBookGroup Group { get; set; } = null!;

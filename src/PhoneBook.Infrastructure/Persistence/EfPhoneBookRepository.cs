@@ -1,5 +1,7 @@
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Data.Sqlite;
 using PhoneBook.Application.Abstractions.Persistence;
+using PhoneBook.Application.Exceptions;
 using PhoneBook.Application.Models;
 using PhoneBook.Domain.Entities;
 using PhoneBook.Infrastructure.Data;
@@ -115,19 +117,33 @@ public sealed class EfPhoneBookRepository(IDbContextFactory<AppDbContext> contex
         await using AppDbContext context = await contextFactory.CreateDbContextAsync(ct);
         PhoneBookGroup created = CopyGroup(group);
         context.PhoneBookGroups.Add(created);
-        await context.SaveChangesAsync(ct);
+        try
+        {
+            await context.SaveChangesAsync(ct);
+        }
+        catch (DbUpdateException exception) when (IsUniqueConstraintViolation(exception))
+        {
+            throw new OrderingConflictException(
+                "The group order was assigned by another administrator. Please retry.",
+                exception);
+        }
         return created;
     }
 
-    public async Task UpdateGroupAsync(PhoneBookGroup group, CancellationToken ct = default)
+    public async Task UpdateGroupAsync(GroupUpdateModel group, CancellationToken ct = default)
     {
         ArgumentNullException.ThrowIfNull(group);
 
         await using AppDbContext context = await contextFactory.CreateDbContextAsync(ct);
-        PhoneBookGroup existing = await context.PhoneBookGroups.SingleOrDefaultAsync(
+        PhoneBookGroup? existing = await context.PhoneBookGroups.SingleOrDefaultAsync(
             item => item.Id == group.Id,
-            ct) ?? throw new KeyNotFoundException($"Group {group.Id} was not found.");
+            ct);
+        if (existing is null)
+        {
+            throw new ConcurrencyConflictException("The group was deleted by another administrator.");
+        }
 
+        context.Entry(existing).Property(item => item.Revision).OriginalValue = group.ExpectedRevision;
         existing.Title = group.Title;
         existing.Priority = group.Priority;
         existing.PreferredColumn = group.PreferredColumn;
@@ -135,10 +151,11 @@ public sealed class EfPhoneBookRepository(IDbContextFactory<AppDbContext> contex
         existing.Required = group.Required;
         existing.KeepTogether = group.KeepTogether;
         existing.IsActive = group.IsActive;
-        await context.SaveChangesAsync(ct);
+        existing.Revision = group.ExpectedRevision + 1;
+        await SaveWithConcurrencyTranslationAsync(context, "group", ct);
     }
 
-    public async Task DeleteGroupAsync(int id, CancellationToken ct = default)
+    public async Task DeleteGroupAsync(int id, long expectedRevision, CancellationToken ct = default)
     {
         await using AppDbContext context = await contextFactory.CreateDbContextAsync(ct);
         PhoneBookGroup? group = await context.PhoneBookGroups.SingleOrDefaultAsync(
@@ -146,11 +163,12 @@ public sealed class EfPhoneBookRepository(IDbContextFactory<AppDbContext> contex
             ct);
         if (group is null)
         {
-            return;
+            throw new ConcurrencyConflictException("The group was already deleted by another administrator.");
         }
 
+        context.Entry(group).Property(item => item.Revision).OriginalValue = expectedRevision;
         context.PhoneBookGroups.Remove(group);
-        await context.SaveChangesAsync(ct);
+        await SaveWithConcurrencyTranslationAsync(context, "group", ct);
     }
 
     public async Task<PhoneBookEntry> InsertEntryAsync(
@@ -162,27 +180,42 @@ public sealed class EfPhoneBookRepository(IDbContextFactory<AppDbContext> contex
         await using AppDbContext context = await contextFactory.CreateDbContextAsync(ct);
         PhoneBookEntry created = CopyEntry(entry);
         context.PhoneBookEntries.Add(created);
-        await context.SaveChangesAsync(ct);
+        try
+        {
+            await context.SaveChangesAsync(ct);
+        }
+        catch (DbUpdateException exception) when (IsUniqueConstraintViolation(exception))
+        {
+            throw new OrderingConflictException(
+                "The entry order was assigned by another administrator. Please retry.",
+                exception);
+        }
         return created;
     }
 
-    public async Task UpdateEntryAsync(PhoneBookEntry entry, CancellationToken ct = default)
+    public async Task UpdateEntryAsync(EntryUpdateModel entry, CancellationToken ct = default)
     {
         ArgumentNullException.ThrowIfNull(entry);
 
         await using AppDbContext context = await contextFactory.CreateDbContextAsync(ct);
-        PhoneBookEntry existing = await context.PhoneBookEntries.SingleOrDefaultAsync(
+        PhoneBookEntry? existing = await context.PhoneBookEntries.SingleOrDefaultAsync(
             item => item.Id == entry.Id,
-            ct) ?? throw new KeyNotFoundException($"Entry {entry.Id} was not found.");
+            ct);
+        if (existing is null)
+        {
+            throw new ConcurrencyConflictException("The entry was deleted by another administrator.");
+        }
 
+        context.Entry(existing).Property(item => item.Revision).OriginalValue = entry.ExpectedRevision;
         existing.Name = entry.Name;
         existing.Extension = entry.Extension;
         existing.DisplayOrder = entry.DisplayOrder;
         existing.IsActive = entry.IsActive;
-        await context.SaveChangesAsync(ct);
+        existing.Revision = entry.ExpectedRevision + 1;
+        await SaveWithConcurrencyTranslationAsync(context, "entry", ct);
     }
 
-    public async Task DeleteEntryAsync(int id, CancellationToken ct = default)
+    public async Task DeleteEntryAsync(int id, long expectedRevision, CancellationToken ct = default)
     {
         await using AppDbContext context = await contextFactory.CreateDbContextAsync(ct);
         PhoneBookEntry? entry = await context.PhoneBookEntries.SingleOrDefaultAsync(
@@ -190,25 +223,29 @@ public sealed class EfPhoneBookRepository(IDbContextFactory<AppDbContext> contex
             ct);
         if (entry is null)
         {
-            return;
+            throw new ConcurrencyConflictException("The entry was already deleted by another administrator.");
         }
 
+        context.Entry(entry).Property(item => item.Revision).OriginalValue = expectedRevision;
         context.PhoneBookEntries.Remove(entry);
-        await context.SaveChangesAsync(ct);
+        await SaveWithConcurrencyTranslationAsync(context, "entry", ct);
     }
 
     public async Task SwapEntryDisplayOrdersAsync(
         int firstEntryId,
+        long firstExpectedRevision,
         int secondEntryId,
+        long secondExpectedRevision,
         CancellationToken ct = default)
     {
         await using AppDbContext context = await contextFactory.CreateDbContextAsync(ct);
+        await using var transaction = await context.Database.BeginTransactionAsync(ct);
         PhoneBookEntry first = await context.PhoneBookEntries.SingleOrDefaultAsync(
             entry => entry.Id == firstEntryId,
-            ct) ?? throw new KeyNotFoundException($"Entry {firstEntryId} was not found.");
+            ct) ?? throw new ConcurrencyConflictException("The entry was deleted by another administrator.");
         PhoneBookEntry second = await context.PhoneBookEntries.SingleOrDefaultAsync(
             entry => entry.Id == secondEntryId,
-            ct) ?? throw new KeyNotFoundException($"Entry {secondEntryId} was not found.");
+            ct) ?? throw new ConcurrencyConflictException("The adjacent entry was deleted by another administrator.");
 
         if (first.GroupId != second.GroupId)
         {
@@ -221,14 +258,33 @@ public sealed class EfPhoneBookRepository(IDbContextFactory<AppDbContext> contex
             .Where(entry => entry.GroupId == first.GroupId)
             .MaxAsync(entry => (int?)entry.DisplayOrder, ct) ?? 0) + 1;
 
-        await using var transaction = await context.Database.BeginTransactionAsync(ct);
-        first.DisplayOrder = temporaryOrder;
-        await context.SaveChangesAsync(ct);
-        second.DisplayOrder = firstOrder;
-        await context.SaveChangesAsync(ct);
-        first.DisplayOrder = secondOrder;
-        await context.SaveChangesAsync(ct);
-        await transaction.CommitAsync(ct);
+        context.Entry(first).Property(item => item.Revision).OriginalValue = firstExpectedRevision;
+        context.Entry(second).Property(item => item.Revision).OriginalValue = secondExpectedRevision;
+        first.Revision = firstExpectedRevision + 1;
+        second.Revision = secondExpectedRevision + 1;
+
+        try
+        {
+            first.DisplayOrder = temporaryOrder;
+            await context.SaveChangesAsync(ct);
+            second.DisplayOrder = firstOrder;
+            await context.SaveChangesAsync(ct);
+            first.DisplayOrder = secondOrder;
+            await context.SaveChangesAsync(ct);
+            await transaction.CommitAsync(ct);
+        }
+        catch (DbUpdateConcurrencyException exception)
+        {
+            throw new ConcurrencyConflictException(
+                "The entry order changed before the move could be completed.",
+                exception);
+        }
+        catch (DbUpdateException exception) when (IsUniqueConstraintViolation(exception))
+        {
+            throw new OrderingConflictException(
+                "The entry order changed before the move could be completed.",
+                exception);
+        }
     }
 
     public async Task<IReadOnlyList<PhoneBookSearchRecord>> GetActiveSearchRecordsAsync(
@@ -258,7 +314,8 @@ public sealed class EfPhoneBookRepository(IDbContextFactory<AppDbContext> contex
             DisplayOrder = source.DisplayOrder,
             Required = source.Required,
             KeepTogether = source.KeepTogether,
-            IsActive = source.IsActive
+            IsActive = source.IsActive,
+            Revision = 1
         };
     }
 
@@ -270,7 +327,38 @@ public sealed class EfPhoneBookRepository(IDbContextFactory<AppDbContext> contex
             Name = source.Name,
             Extension = source.Extension,
             DisplayOrder = source.DisplayOrder,
-            IsActive = source.IsActive
+            IsActive = source.IsActive,
+            Revision = 1
         };
+    }
+
+    private static async Task SaveWithConcurrencyTranslationAsync(
+        AppDbContext context,
+        string recordName,
+        CancellationToken ct)
+    {
+        try
+        {
+            await context.SaveChangesAsync(ct);
+        }
+        catch (DbUpdateConcurrencyException exception)
+        {
+            throw new ConcurrencyConflictException(
+                $"The {recordName} changed after it was loaded.",
+                exception);
+        }
+        catch (DbUpdateException exception) when (IsUniqueConstraintViolation(exception))
+        {
+            throw new OrderingConflictException(
+                $"The requested {recordName} order is already in use.",
+                exception);
+        }
+    }
+
+    private static bool IsUniqueConstraintViolation(DbUpdateException exception)
+    {
+        return exception.InnerException is SqliteException sqliteException
+            && sqliteException.SqliteErrorCode == 19
+            && sqliteException.SqliteExtendedErrorCode == 2067;
     }
 }

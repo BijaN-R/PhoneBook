@@ -1,10 +1,14 @@
 ﻿using System;
 using Microsoft.EntityFrameworkCore.Migrations;
+using Microsoft.EntityFrameworkCore.Infrastructure;
+using PhoneBook.Infrastructure.Data;
 
 #nullable disable
 
 namespace PhoneBook.Infrastructure.Migrations
 {
+    [DbContext(typeof(AppDbContext))]
+    [Migration("20260918151622_AddIdentity")]
     /// <inheritdoc />
     public partial class AddIdentity : Migration
     {

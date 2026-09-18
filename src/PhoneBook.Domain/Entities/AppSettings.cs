@@ -5,6 +5,8 @@ public sealed class AppSettings
 {
     public int Id { get; set; }
 
+    public long Revision { get; set; } = 1;
+
     public double PageWidthMm { get; set; } = 210;
 
     public double PageHeightMm { get; set; } = 297;

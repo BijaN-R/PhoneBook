@@ -55,6 +55,10 @@ else
         {
             <span class="status-message @(_hasError ? "error" : "success")">@_message</span>
         }
+        @if (_hasConflict)
+        {
+            <button class="button" disabled="@_saving" @onclick="ReloadLatestAsync">بارگذاری آخرین نسخه</button>
+        }
     </div>
 }
 
@@ -62,6 +66,7 @@ else
     private AppSettings? _settings;
     private bool _saving;
     private bool _hasError;
+    private bool _hasConflict;
     private string? _message;
 
     protected override async Task OnInitializedAsync()
@@ -86,12 +91,19 @@ else
 
         _saving = true;
         _message = null;
+        _hasConflict = false;
         try
         {
             _settings.PriorityTopLimit = 3;
             await SettingsService.UpdateAsync(_settings);
             _hasError = false;
             _message = "تنظیمات ذخیره شد.";
+        }
+        catch (ConcurrencyConflictException)
+        {
+            _hasConflict = true;
+            _hasError = true;
+            _message = "تنظیمات پس از بازشدن صفحه توسط مدیر دیگری تغییر کرده است.";
         }
         catch (Exception exception)
         {
@@ -102,6 +114,14 @@ else
         {
             _saving = false;
         }
+    }
+
+    private async Task ReloadLatestAsync()
+    {
+        _settings = await SettingsService.ReloadAsync();
+        _hasConflict = false;
+        _hasError = false;
+        _message = "آخرین نسخه تنظیمات بارگذاری شد.";
     }
 
     private static string? Validate(AppSettings settings)

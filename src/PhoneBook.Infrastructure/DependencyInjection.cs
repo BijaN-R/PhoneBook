@@ -26,6 +26,7 @@ public static class DependencyInjection
         services.AddSingleton<IPhoneBookRepository, EfPhoneBookRepository>();
         services.AddSingleton<IAppSettingsRepository, EfAppSettingsRepository>();
         services.AddScoped<AdminBootstrapper>();
+        services.AddSingleton<DefaultPhoneBookDataInitializer>();
         return services;
     }
 }
