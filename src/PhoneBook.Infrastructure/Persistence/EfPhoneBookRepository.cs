@@ -171,6 +171,58 @@ public sealed class EfPhoneBookRepository(IDbContextFactory<AppDbContext> contex
         await SaveWithConcurrencyTranslationAsync(context, "group", ct);
     }
 
+    public async Task ReorderGroupAsync(
+        int id,
+        long expectedRevision,
+        int targetIndex,
+        CancellationToken ct = default)
+    {
+        await using AppDbContext context = await contextFactory.CreateDbContextAsync(ct);
+        await using var transaction = await context.Database.BeginTransactionAsync(ct);
+        List<PhoneBookGroup> groups = await context.PhoneBookGroups
+            .OrderBy(group => group.DisplayOrder).ThenBy(group => group.Id).ToListAsync(ct);
+        int sourceIndex = groups.FindIndex(group => group.Id == id);
+        if (sourceIndex < 0 || groups[sourceIndex].Revision != expectedRevision)
+        {
+            throw new ConcurrencyConflictException("The group changed before it could be reordered.");
+        }
+
+        targetIndex = Math.Clamp(targetIndex, 0, groups.Count - 1);
+        if (sourceIndex == targetIndex)
+        {
+            return;
+        }
+
+        PhoneBookGroup moving = groups[sourceIndex];
+        groups.RemoveAt(sourceIndex);
+        groups.Insert(targetIndex, moving);
+        int temporaryStart = (groups.Min(group => group.DisplayOrder) - groups.Count) - 1;
+        try
+        {
+            for (int index = 0; index < groups.Count; index++)
+            {
+                groups[index].DisplayOrder = temporaryStart + index;
+            }
+            await context.SaveChangesAsync(ct);
+
+            for (int index = 0; index < groups.Count; index++)
+            {
+                groups[index].DisplayOrder = index + 1;
+                groups[index].Revision++;
+            }
+            await context.SaveChangesAsync(ct);
+            await transaction.CommitAsync(ct);
+        }
+        catch (DbUpdateConcurrencyException exception)
+        {
+            throw new ConcurrencyConflictException("The group order changed before the move completed.", exception);
+        }
+        catch (DbUpdateException exception) when (IsUniqueConstraintViolation(exception))
+        {
+            throw new OrderingConflictException("The group order changed before the move completed.", exception);
+        }
+    }
+
     public async Task<PhoneBookEntry> InsertEntryAsync(
         PhoneBookEntry entry,
         CancellationToken ct = default)
@@ -284,6 +336,103 @@ public sealed class EfPhoneBookRepository(IDbContextFactory<AppDbContext> contex
             throw new OrderingConflictException(
                 "The entry order changed before the move could be completed.",
                 exception);
+        }
+    }
+
+    public async Task ReorderEntryAsync(
+        int id,
+        long expectedRevision,
+        int targetIndex,
+        CancellationToken ct = default)
+    {
+        await using AppDbContext context = await contextFactory.CreateDbContextAsync(ct);
+        await using var transaction = await context.Database.BeginTransactionAsync(ct);
+        PhoneBookEntry moving = await context.PhoneBookEntries.SingleOrDefaultAsync(entry => entry.Id == id, ct)
+            ?? throw new ConcurrencyConflictException("The entry was deleted before it could be reordered.");
+        if (moving.Revision != expectedRevision)
+        {
+            throw new ConcurrencyConflictException("The entry changed before it could be reordered.");
+        }
+
+        List<PhoneBookEntry> entries = await context.PhoneBookEntries
+            .Where(entry => entry.GroupId == moving.GroupId)
+            .OrderBy(entry => entry.DisplayOrder).ThenBy(entry => entry.Id).ToListAsync(ct);
+        int sourceIndex = entries.FindIndex(entry => entry.Id == id);
+        targetIndex = Math.Clamp(targetIndex, 0, entries.Count - 1);
+        if (sourceIndex == targetIndex)
+        {
+            return;
+        }
+
+        entries.RemoveAt(sourceIndex);
+        entries.Insert(targetIndex, moving);
+        int temporaryStart = (entries.Min(entry => entry.DisplayOrder) - entries.Count) - 1;
+        try
+        {
+            for (int index = 0; index < entries.Count; index++) entries[index].DisplayOrder = temporaryStart + index;
+            await context.SaveChangesAsync(ct);
+            for (int index = 0; index < entries.Count; index++)
+            {
+                entries[index].DisplayOrder = index + 1;
+                entries[index].Revision++;
+            }
+            await context.SaveChangesAsync(ct);
+            await transaction.CommitAsync(ct);
+        }
+        catch (DbUpdateConcurrencyException exception)
+        {
+            throw new ConcurrencyConflictException("The entry order changed before the move completed.", exception);
+        }
+        catch (DbUpdateException exception) when (IsUniqueConstraintViolation(exception))
+        {
+            throw new OrderingConflictException("The entry order changed before the move completed.", exception);
+        }
+    }
+
+    public async Task SetEntriesActiveStateAsync(
+        IReadOnlyList<EntryStateChange> entries,
+        bool isActive,
+        CancellationToken ct = default)
+    {
+        ArgumentNullException.ThrowIfNull(entries);
+        if (entries.Count == 0) return;
+
+        await using AppDbContext context = await contextFactory.CreateDbContextAsync(ct);
+        await using var transaction = await context.Database.BeginTransactionAsync(ct);
+        int[] ids = entries.Select(item => item.EntryId).Distinct().ToArray();
+        if (ids.Length != entries.Count)
+        {
+            throw new ArgumentException("Entry IDs must be unique.", nameof(entries));
+        }
+
+        List<PhoneBookEntry> stored = await context.PhoneBookEntries
+            .Where(entry => ids.Contains(entry.Id)).ToListAsync(ct);
+        if (stored.Count != entries.Count)
+        {
+            throw new ConcurrencyConflictException("One or more entries no longer exist.");
+        }
+
+        Dictionary<int, long> revisions = entries.ToDictionary(item => item.EntryId, item => item.ExpectedRevision);
+        foreach (PhoneBookEntry entry in stored)
+        {
+            long expectedRevision = revisions[entry.Id];
+            if (entry.Revision != expectedRevision)
+            {
+                throw new ConcurrencyConflictException("One or more entries changed before the bulk operation.");
+            }
+            context.Entry(entry).Property(item => item.Revision).OriginalValue = expectedRevision;
+            entry.IsActive = isActive;
+            entry.Revision = expectedRevision + 1;
+        }
+
+        try
+        {
+            await context.SaveChangesAsync(ct);
+            await transaction.CommitAsync(ct);
+        }
+        catch (DbUpdateConcurrencyException exception)
+        {
+            throw new ConcurrencyConflictException("One or more entries changed before the bulk operation.", exception);
         }
     }
 

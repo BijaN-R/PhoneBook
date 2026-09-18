@@ -1,40 +1,24 @@
-@* FILE: src/PhoneBook.Web/Components/Pages/Groups.razor *@
 @page "/groups"
 @rendermode InteractiveServer
 @attribute [Authorize(Policy = AuthorizationPolicies.AdminOnly)]
 @inject PhoneBookQueryService QueryService
 @inject GroupManagementService GroupService
+@inject IJSRuntime JS
 
 <PageTitle>مدیریت گروه‌ها</PageTitle>
+<section class="page-heading"><div><span class="eyebrow">ساختار دفترچه</span><h1>گروه‌ها</h1><p>وضعیت، اولویت و ترتیب نمایش گروه‌ها را مدیریت کنید.</p></div></section>
 
-<section class="page-heading">
-    <div>
-        <span class="eyebrow">ساختار دفترچه</span>
-        <h1>گروه‌ها</h1>
-        <p>عنوان، اولویت، ترتیب نمایش و ستون پیشنهادی هر بخش را مدیریت کنید.</p>
-    </div>
-</section>
+<OperationFeedback Message="@_message" Kind="@(_hasError ? "error" : "success")" Blocking="@_hasError">
+    @if (_hasConflict) { <button class="button" disabled="@_busy" @onclick="ReloadAfterConflictAsync">بارگذاری مجدد</button> }
+</OperationFeedback>
 
 <section class="panel form-panel">
-    <div class="section-title">
-        <div>
-            <span class="eyebrow">گروه تازه</span>
-            <h2>افزودن گروه</h2>
-        </div>
-    </div>
+    <div class="section-title"><div><span class="eyebrow">گروه تازه</span><h2>افزودن گروه</h2></div></div>
     <div class="form-grid group-form-grid">
         <label>عنوان<input @bind="_newGroup.Title" /></label>
-        <label>اولویت<input type="number" min="0" @bind="_newGroup.Priority" /></label>
+        <label>اولویت<input type="number" min="1" @bind="_newGroup.Priority" /></label>
         <label>ترتیب نمایش<input type="number" min="0" @bind="_newGroup.DisplayOrder" /></label>
-        <label>
-            ستون پیشنهادی
-            <select @bind="_newGroup.PreferredColumn">
-                <option value="">خودکار</option>
-                <option value="Right">راست</option>
-                <option value="Middle">میانی</option>
-                <option value="Left">چپ</option>
-            </select>
-        </label>
+        <label>ستون پیشنهادی<select @bind="_newGroup.PreferredColumn"><option value="">خودکار</option><option value="Right">راست</option><option value="Middle">میانی</option><option value="Left">چپ</option></select></label>
         <label class="check-field"><input type="checkbox" @bind="_newGroup.Required" /> الزامی</label>
         <label class="check-field"><input type="checkbox" @bind="_newGroup.KeepTogether" /> یکپارچه بماند</label>
         <label class="check-field"><input type="checkbox" @bind="_newGroup.IsActive" /> فعال</label>
@@ -43,175 +27,70 @@
 </section>
 
 <section class="panel table-panel">
-    <div class="section-title">
-        <div>
-            <span class="eyebrow">@PersianTextNormalizer.ToPersianDigits(_groups.Count.ToString(CultureInfo.InvariantCulture)) گروه</span>
-            <h2>فهرست گروه‌ها</h2>
-        </div>
-    </div>
-
-    <div class="table-scroll">
-        <table>
-            <thead>
-                <tr>
-                    <th>عنوان</th>
-                    <th>اولویت</th>
-                    <th>ترتیب</th>
-                    <th>ستون</th>
-                    <th>الزامی</th>
-                    <th>یکپارچه</th>
-                    <th>فعال</th>
-                    <th>عملیات</th>
-                </tr>
-            </thead>
-            <tbody>
-                @foreach (PhoneBookGroup group in _groups)
-                {
-                    <tr @key="group.Id">
-                        <td><input aria-label="عنوان گروه" @bind="group.Title" /></td>
-                        <td><input class="number-input" type="number" min="1" @bind="group.Priority" /></td>
-                        <td><input class="number-input" type="number" min="1" @bind="group.DisplayOrder" /></td>
-                        <td>
-                            <select aria-label="ستون پیشنهادی" @bind="group.PreferredColumn">
-                                <option value="">خودکار</option>
-                                <option value="Right">راست</option>
-                                <option value="Middle">میانی</option>
-                                <option value="Left">چپ</option>
-                            </select>
-                        </td>
-                        <td><input aria-label="الزامی" type="checkbox" @bind="group.Required" /></td>
-                        <td><input aria-label="یکپارچه" type="checkbox" @bind="group.KeepTogether" /></td>
-                        <td><input aria-label="فعال" type="checkbox" @bind="group.IsActive" /></td>
-                        <td class="row-actions">
-                            <button class="text-button" disabled="@_busy" @onclick="() => SaveAsync(group)">ذخیره</button>
-                            <button class="text-button danger" disabled="@_busy" @onclick="() => DeleteAsync(group)">حذف</button>
-                        </td>
-                    </tr>
-                }
-            </tbody>
-        </table>
-    </div>
+    <div class="section-title"><div><span class="eyebrow">@ToPersian(_groups.Count) گروه</span><h2>فهرست گروه‌ها</h2></div></div>
+    @if (_loading) { <p class="muted" role="status">در حال بارگذاری…</p> }
+    else if (_groups.Count == 0) { <div class="empty-state compact">موردی با فیلترهای انتخاب‌شده پیدا نشد.</div> }
+    else
+    {
+        <div class="table-scroll"><table><thead><tr><th>عنوان</th><th>وضعیت</th><th>اولویت</th><th>ستون</th><th>الزامی</th><th>ترتیب</th><th>جابجایی</th><th>عملیات</th></tr></thead><tbody>
+        @for (int index = 0; index < _groups.Count; index++)
+        {
+            PhoneBookGroup group = _groups[index]; int rowIndex = index;
+            <tr @key="group.Id">
+                <td><input aria-label="عنوان گروه @group.Title" @bind="group.Title" /></td>
+                <td><span class="state-badge @(group.IsActive ? "active" : "inactive")">@(group.IsActive ? "فعال" : "غیرفعال")</span></td>
+                <td><input aria-label="اولویت گروه @group.Title" class="number-input" type="number" min="1" @bind="group.Priority" /></td>
+                <td><select aria-label="ستون پیشنهادی گروه @group.Title" @bind="group.PreferredColumn"><option value="">خودکار</option><option value="Right">راست</option><option value="Middle">میانی</option><option value="Left">چپ</option></select></td>
+                <td><label class="check-field"><input aria-label="الزامی بودن گروه @group.Title" type="checkbox" @bind="group.Required" /> @(group.Required ? "بله" : "خیر")</label></td>
+                <td>@ToPersian(group.DisplayOrder)</td>
+                <td class="reorder-actions">
+                    <button title="انتقال به ابتدا" aria-label="انتقال @group.Title به ابتدا" disabled="@(_busy || rowIndex == 0)" @onclick="() => MoveBoundaryAsync(group, true)">⇈</button>
+                    <button title="انتقال به بالا" aria-label="انتقال @group.Title به بالا" disabled="@(_busy || rowIndex == 0)" @onclick="() => MoveAsync(group, -1)">↑</button>
+                    <button title="انتقال به پایین" aria-label="انتقال @group.Title به پایین" disabled="@(_busy || rowIndex == _groups.Count - 1)" @onclick="() => MoveAsync(group, 1)">↓</button>
+                    <button title="انتقال به انتها" aria-label="انتقال @group.Title به انتها" disabled="@(_busy || rowIndex == _groups.Count - 1)" @onclick="() => MoveBoundaryAsync(group, false)">⇊</button>
+                </td>
+                <td class="row-actions">
+                    <button class="text-button" disabled="@_busy" @onclick="() => SaveAsync(group)">ذخیره</button>
+                    <button class="text-button" disabled="@_busy" @onclick="() => ToggleActiveAsync(group)">@(group.IsActive ? "غیرفعال‌سازی" : "فعال‌سازی")</button>
+                    <button class="text-button danger" disabled="@(_busy || group.Required || group.Entries.Count > 0)" @onclick="() => DeleteAsync(group)">حذف قطعی</button>
+                </td>
+            </tr>
+        }
+        </tbody></table></div>
+    }
 </section>
 
-@if (!string.IsNullOrWhiteSpace(_message))
-{
-    <p class="toast @(_hasError ? "error" : "success")">@_message</p>
-    @if (_hasConflict)
-    {
-        <button class="toast-reload" disabled="@_busy" @onclick="ReloadAfterConflictAsync">بارگذاری آخرین نسخه</button>
-    }
-}
-
 @code {
-    private readonly PhoneBookGroup _newGroup = new()
-    {
-        Required = true,
-        KeepTogether = true,
-        IsActive = true
-    };
+    private readonly PhoneBookGroup _newGroup = new() { Required = true, KeepTogether = true, IsActive = true };
     private IReadOnlyList<PhoneBookGroup> _groups = [];
-    private bool _busy;
-    private bool _hasError;
-    private bool _hasConflict;
+    private bool _loading = true, _busy, _hasError, _hasConflict;
     private string? _message;
 
-    protected override Task OnInitializedAsync()
-    {
-        return ReloadAsync();
-    }
-
+    protected override async Task OnInitializedAsync() { await ReloadAsync(); _loading = false; }
     private async Task AddAsync()
     {
-        if (string.IsNullOrWhiteSpace(_newGroup.Title))
-        {
-            ShowError("عنوان گروه را وارد کنید.");
-            return;
-        }
-
-        await RunMutationAsync(async () =>
-        {
-            await GroupService.CreateGroupAsync(_newGroup);
-            _newGroup.Title = string.Empty;
-            _newGroup.Priority = 0;
-            _newGroup.DisplayOrder = 0;
-            _newGroup.PreferredColumn = null;
-            await RefreshAndReloadAsync();
-        }, "گروه افزوده شد.");
+        if (string.IsNullOrWhiteSpace(_newGroup.Title)) { ShowError("عنوان گروه را وارد کنید."); return; }
+        await RunAsync(async () => { await GroupService.CreateGroupAsync(_newGroup); _newGroup.Title=""; _newGroup.Priority=0; _newGroup.DisplayOrder=0; await ReloadAsync(); }, "گروه افزوده شد.");
     }
-
-    private Task SaveAsync(PhoneBookGroup group)
+    private Task SaveAsync(PhoneBookGroup group) => RunAsync(async () => { await GroupService.UpdateGroupAsync(GroupUpdateModel.FromEntity(group)); await ReloadAsync(); }, "تغییرات گروه ذخیره شد.");
+    private Task ToggleActiveAsync(PhoneBookGroup group) => RunAsync(async () => { group.IsActive=!group.IsActive; await GroupService.UpdateGroupAsync(GroupUpdateModel.FromEntity(group)); await ReloadAsync(); }, group.IsActive ? "گروه غیرفعال شد." : "گروه فعال شد.");
+    private Task MoveAsync(PhoneBookGroup group, int offset) => RunAsync(async () => { await GroupService.MoveGroupAsync(group.Id, group.Revision, offset); await ReloadAsync(); }, "ترتیب گروه‌ها تغییر کرد.");
+    private Task MoveBoundaryAsync(PhoneBookGroup group, bool top) => RunAsync(async () => { await GroupService.MoveGroupToBoundaryAsync(group.Id, group.Revision, top); await ReloadAsync(); }, "ترتیب گروه‌ها تغییر کرد.");
+    private async Task DeleteAsync(PhoneBookGroup group)
     {
-        return RunMutationAsync(async () =>
-        {
-            await GroupService.UpdateGroupAsync(GroupUpdateModel.FromEntity(group));
-            await RefreshAndReloadAsync();
-        }, "تغییرات گروه ذخیره شد.");
+        if (!await JS.InvokeAsync<bool>("confirm", $"آیا از حذف «{group.Title}» مطمئن هستید؟ این عملیات قابل بازگشت نیست.")) return;
+        await RunAsync(async () => { await GroupService.DeleteGroupAsync(group.Id, group.Revision); await ReloadAsync(); }, "گروه حذف شد.");
     }
-
-    private Task DeleteAsync(PhoneBookGroup group)
+    private async Task RunAsync(Func<Task> action, string success)
     {
-        return RunMutationAsync(async () =>
-        {
-            await GroupService.DeleteGroupAsync(group.Id, group.Revision);
-            await RefreshAndReloadAsync();
-        }, "گروه و داخلی‌های آن حذف شدند.");
+        if (_busy) return; _busy=true; _message=null; _hasConflict=false;
+        try { await action(); _hasError=false; _message=success; }
+        catch (ConcurrencyConflictException) { _hasConflict=true; ShowError("این مورد توسط کاربر دیگری تغییر کرده است. لطفاً آخرین اطلاعات را بارگذاری کنید."); }
+        catch (Exception ex) { ShowError(ex.Message); }
+        finally { _busy=false; }
     }
-
-    private async Task RefreshAndReloadAsync()
-    {
-        await ReloadAsync();
-    }
-
-    private async Task ReloadAsync()
-    {
-        _groups = await QueryService.GetGroupsAsync();
-    }
-
-    private async Task RunMutationAsync(Func<Task> mutation, string successMessage)
-    {
-        if (_busy)
-        {
-            return;
-        }
-
-        _busy = true;
-        _message = null;
-        _hasConflict = false;
-        try
-        {
-            await mutation();
-            _hasError = false;
-            _message = successMessage;
-        }
-        catch (ConcurrencyConflictException)
-        {
-            _hasConflict = true;
-            ShowError("این گروه پس از بازشدن صفحه توسط مدیر دیگری تغییر کرده یا حذف شده است.");
-        }
-        catch (OrderingConflictException)
-        {
-            ShowError("ترتیب انتخاب‌شده هم‌زمان توسط مدیر دیگری استفاده شد؛ دوباره تلاش کنید.");
-        }
-        catch (Exception exception)
-        {
-            ShowError(exception.Message);
-        }
-        finally
-        {
-            _busy = false;
-        }
-    }
-
-    private async Task ReloadAfterConflictAsync()
-    {
-        _hasConflict = false;
-        _message = null;
-        await ReloadAsync();
-    }
-
-    private void ShowError(string message)
-    {
-        _hasError = true;
-        _message = message;
-    }
+    private async Task ReloadAfterConflictAsync() { if (await JS.InvokeAsync<bool>("confirm", "تغییرات ذخیره‌نشده کنار گذاشته شوند؟")) { await ReloadAsync(); _hasConflict=false; _message=null; } }
+    private async Task ReloadAsync() => _groups = await QueryService.GetGroupsAsync();
+    private void ShowError(string value) { _hasError=true; _message=value; }
+    private static string ToPersian(int value) => PersianTextNormalizer.ToPersianDigits(value.ToString(CultureInfo.InvariantCulture));
 }

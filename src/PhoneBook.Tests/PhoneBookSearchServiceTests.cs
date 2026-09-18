@@ -131,10 +131,13 @@ public sealed class PhoneBookSearchServiceTests
         public Task<PhoneBookGroup> InsertGroupAsync(PhoneBookGroup group, CancellationToken ct = default) => throw new NotSupportedException();
         public Task UpdateGroupAsync(GroupUpdateModel group, CancellationToken ct = default) => throw new NotSupportedException();
         public Task DeleteGroupAsync(int id, long expectedRevision, CancellationToken ct = default) => throw new NotSupportedException();
+        public Task ReorderGroupAsync(int id, long expectedRevision, int targetIndex, CancellationToken ct = default) => throw new NotSupportedException();
         public Task<PhoneBookEntry> InsertEntryAsync(PhoneBookEntry entry, CancellationToken ct = default) => throw new NotSupportedException();
         public Task UpdateEntryAsync(EntryUpdateModel entry, CancellationToken ct = default) => throw new NotSupportedException();
         public Task DeleteEntryAsync(int id, long expectedRevision, CancellationToken ct = default) => throw new NotSupportedException();
         public Task SwapEntryDisplayOrdersAsync(int firstEntryId, long firstExpectedRevision, int secondEntryId,
             long secondExpectedRevision, CancellationToken ct = default) => throw new NotSupportedException();
+        public Task ReorderEntryAsync(int id, long expectedRevision, int targetIndex, CancellationToken ct = default) => throw new NotSupportedException();
+        public Task SetEntriesActiveStateAsync(IReadOnlyList<EntryStateChange> entries, bool isActive, CancellationToken ct = default) => throw new NotSupportedException();
     }
 }

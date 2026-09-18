@@ -82,6 +82,7 @@ builder.Services.AddSingleton<SettingsService>();
 builder.Services.AddSingleton<PhoneBookSearchService>();
 builder.Services.AddSingleton<PhoneBookDocumentService>();
 builder.Services.AddSingleton<PhoneBookDataTransferService>();
+builder.Services.AddSingleton<IPhoneBookDataQualityService, PhoneBookDataQualityService>();
 builder.Services.AddSingleton(serviceProvider => new OpenXmlPhoneBookGenerator(
     serviceProvider.GetRequiredService<ITextMeasurer>(),
     fontsPath));

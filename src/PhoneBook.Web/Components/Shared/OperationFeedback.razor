@@ -1,0 +1,17 @@
+@if (!string.IsNullOrWhiteSpace(Message))
+{
+    <div class="operation-feedback @Kind" role="@(Blocking ? "alert" : "status")">
+        <span>@Message</span>
+        @if (ChildContent is not null)
+        {
+            <div class="operation-feedback-actions">@ChildContent</div>
+        }
+    </div>
+}
+
+@code {
+    [Parameter] public string? Message { get; set; }
+    [Parameter] public string Kind { get; set; } = "info";
+    [Parameter] public bool Blocking { get; set; }
+    [Parameter] public RenderFragment? ChildContent { get; set; }
+}

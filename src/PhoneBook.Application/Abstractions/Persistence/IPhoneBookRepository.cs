@@ -32,6 +32,12 @@ public interface IPhoneBookRepository
 
     Task DeleteGroupAsync(int id, long expectedRevision, CancellationToken ct = default);
 
+    Task ReorderGroupAsync(
+        int id,
+        long expectedRevision,
+        int targetIndex,
+        CancellationToken ct = default);
+
     Task<PhoneBookEntry> InsertEntryAsync(PhoneBookEntry entry, CancellationToken ct = default);
 
     Task UpdateEntryAsync(EntryUpdateModel entry, CancellationToken ct = default);
@@ -43,6 +49,17 @@ public interface IPhoneBookRepository
         long firstExpectedRevision,
         int secondEntryId,
         long secondExpectedRevision,
+        CancellationToken ct = default);
+
+    Task ReorderEntryAsync(
+        int id,
+        long expectedRevision,
+        int targetIndex,
+        CancellationToken ct = default);
+
+    Task SetEntriesActiveStateAsync(
+        IReadOnlyList<EntryStateChange> entries,
+        bool isActive,
         CancellationToken ct = default);
 
     Task<IReadOnlyList<PhoneBookSearchRecord>> GetActiveSearchRecordsAsync(

@@ -4,6 +4,7 @@
 @attribute [Authorize(Policy = AuthorizationPolicies.AdminOnly)]
 @inject SettingsService SettingsService
 @inject PhoneBookDataTransferService DataTransferService
+@inject IPhoneBookDataQualityService DataQualityService
 @inject IJSRuntime JS
 
 <PageTitle>تنظیمات دفترچه</PageTitle>
@@ -16,12 +17,21 @@
     </div>
 </section>
 
+<div class="settings-tabs" role="tablist" aria-label="بخش‌های تنظیمات">
+    @foreach ((string Id, string Label) tab in SettingsTabs)
+    {
+        <button role="tab" aria-selected="@(_activeTab == tab.Id)" class="@(_activeTab == tab.Id ? "active" : null)" @onclick="() => _activeTab = tab.Id">@tab.Label</button>
+    }
+</div>
+
 @if (_settings is null)
 {
     <section class="panel"><p class="muted">در حال بارگذاری تنظیمات…</p></section>
 }
 else
 {
+    @if (_activeTab == "layout")
+    {
     <section class="settings-sections">
         <div class="panel form-panel">
             <div class="section-title"><h2>ابعاد صفحه</h2></div>
@@ -45,12 +55,24 @@ else
                 <label>اندازه عنوان صفحه<InputNumber @bind-Value="_settings.HeaderFontSizePt" /></label>
                 <label>اندازه عنوان گروه<InputNumber @bind-Value="_settings.GroupHeaderFontSizePt" /></label>
                 <label>کمینه اندازه قلم<InputNumber @bind-Value="_settings.MinFontSizePt" /></label>
-                <label>تعداد اولویت‌های بالا<input type="number" value="3" disabled /></label>
-                <label class="check-field wide"><InputCheckbox @bind-Value="_settings.UsePersianDigits" /> نمایش اعداد فارسی در خروجی</label>
             </div>
         </div>
     </section>
+    }
 
+    @if (_activeTab == "general")
+    {
+        <section class="panel form-panel">
+            <div class="section-title"><h2>تنظیمات عمومی</h2></div>
+            <div class="form-grid settings-grid">
+                <label>تعداد اولویت‌های بالا<input type="number" value="3" disabled /></label>
+                <label class="check-field wide"><InputCheckbox @bind-Value="_settings.UsePersianDigits" /> نمایش اعداد فارسی در خروجی</label>
+            </div>
+        </section>
+    }
+
+    @if (_activeTab == "data")
+    {
     <section class="panel data-management-panel">
         <div class="section-title">
             <div>
@@ -90,24 +112,31 @@ else
                     <article><span>داخلی فعال / غیرفعال</span><strong>@ToPersianNumber(_importPreview.Summary.ActiveEntryCount) / @ToPersianNumber(_importPreview.Summary.InactiveEntryCount)</strong></article>
                 </div>
 
-                @if (_importPreview.Issues.Count > 0)
+                @if (_importPreview.Issues.Any(issue => issue.Severity == PhoneBookImportIssueSeverity.Error))
                 {
                     <div class="import-issues">
-                        @foreach (PhoneBookImportIssue issue in _importPreview.Issues)
+                        <h3>خطاها</h3>
+                        @foreach (PhoneBookImportIssue issue in _importPreview.Issues.Where(issue => issue.Severity == PhoneBookImportIssueSeverity.Error))
                         {
-                            <div class="import-issue @(issue.Severity == PhoneBookImportIssueSeverity.Error ? "error" : "warning")">
-                                <strong>@(issue.Severity == PhoneBookImportIssueSeverity.Error ? "خطا" : "هشدار")</strong>
+                            <div class="import-issue error"><strong>خطا</strong>
                                 <span>@issue.Message</span>
                                 <code dir="ltr">@issue.Path</code>
                             </div>
                         }
                     </div>
                 }
+                @if (_importPreview.Issues.Any(issue => issue.Severity == PhoneBookImportIssueSeverity.Warning))
+                {
+                    <div class="import-issues"><h3>هشدارها</h3>
+                        @foreach (PhoneBookImportIssue issue in _importPreview.Issues.Where(issue => issue.Severity == PhoneBookImportIssueSeverity.Warning))
+                        { <div class="import-issue warning"><strong>هشدار</strong><span>@issue.Message</span><code dir="ltr">@issue.Path</code></div> }
+                    </div>
+                }
 
                 @if (_importPreview.CanApply)
                 {
                     <div class="replace-confirmation">
-                        <p><strong>توجه:</strong> این عملیات تمام گروه‌ها، داخلی‌ها، سربرگ و تنظیمات فعلی دفترچه را جایگزین می‌کند. حساب‌های مدیران بدون تغییر باقی می‌مانند.</p>
+                        <p><strong>توجه:</strong> این عملیات تمام داده‌های فعلی دفترچه تلفن را با محتوای فایل جایگزین می‌کند و قابل بازگشت نیست.</p>
                         <label class="check-field">
                             <input type="checkbox" @bind="_replaceConfirmed" /> جایگزینی کامل داده‌های فعلی را تأیید می‌کنم.
                         </label>
@@ -116,32 +145,49 @@ else
                 }
                 else
                 {
-                    <p class="status-message error">تا زمانی که خطاهای فایل برطرف نشوند، بازیابی امکان‌پذیر نیست.</p>
+                    <OperationFeedback Message="تا زمانی که خطاهای فایل برطرف نشوند، بازیابی امکان‌پذیر نیست." Kind="error" Blocking="true" />
                 }
             </div>
         }
 
-        @if (!string.IsNullOrWhiteSpace(_transferMessage))
-        {
-            <p class="status-message @(_transferHasError ? "error" : "success")">@_transferMessage</p>
-        }
+        <OperationFeedback Message="@_transferMessage" Kind="@(_transferHasError ? "error" : "success")" Blocking="@_transferHasError" />
     </section>
+    }
 
+    @if (_activeTab == "operations")
+    {
+        <section class="panel data-quality-panel">
+            <div class="section-title"><div><span class="eyebrow">کنترل پیش از انتشار</span><h2>کیفیت داده‌ها</h2><p class="muted">این بررسی فقط گزارش تولید می‌کند و هیچ داده‌ای را تغییر نمی‌دهد.</p></div>
+                <button class="button primary" disabled="@_qualityBusy" @onclick="AnalyzeQualityAsync">@(_qualityBusy ? "در حال بررسی…" : "بررسی کیفیت داده‌ها")</button>
+            </div>
+            @if (_qualityReport is not null)
+            {
+                <p><strong>@ToPersianNumber(_qualityReport.Issues.Count)</strong> مورد شناسایی شد.</p>
+                @if (_qualityReport.Issues.Count == 0) { <div class="empty-state compact">مشکل کیفیت داده‌ای پیدا نشد.</div> }
+                else { <div class="quality-list">@foreach (DataQualityIssue issue in _qualityReport.Issues) { <article class="quality-issue @(issue.Severity == DataQualitySeverity.Error ? "error" : "warning")"><strong>@(issue.Severity == DataQualitySeverity.Error ? "خطا" : "هشدار")</strong><span>@issue.Message</span><small>گروه: @(issue.GroupId?.ToString() ?? "—") · داخلی: @(issue.EntryId?.ToString() ?? "—")</small></article> }</div> }
+            }
+        </section>
+    }
+
+    @if (_activeTab is "layout" or "general")
+    {
     <div class="sticky-actions">
         <button class="button primary" disabled="@_saving" @onclick="SaveAsync">ذخیره تنظیمات</button>
-        @if (!string.IsNullOrWhiteSpace(_message))
-        {
-            <span class="status-message @(_hasError ? "error" : "success")">@_message</span>
-        }
+        <OperationFeedback Message="@_message" Kind="@(_hasError ? "error" : "success")" Blocking="@_hasError" />
         @if (_hasConflict)
         {
             <button class="button" disabled="@_saving" @onclick="ReloadLatestAsync">بارگذاری آخرین نسخه</button>
         }
     </div>
+    }
 }
 
 @code {
     private AppSettings? _settings;
+    private static readonly (string Id, string Label)[] SettingsTabs = [("layout", "نمایش و صفحه‌آرایی"), ("general", "تنظیمات عمومی"), ("data", "مدیریت داده‌ها"), ("operations", "عملیات مدیریتی")];
+    private string _activeTab = "layout";
+    private DataQualityReport? _qualityReport;
+    private bool _qualityBusy;
     private bool _saving;
     private bool _hasError;
     private bool _hasConflict;
@@ -156,6 +202,14 @@ else
     protected override async Task OnInitializedAsync()
     {
         _settings = await SettingsService.GetAsync();
+    }
+
+    private async Task AnalyzeQualityAsync()
+    {
+        if (_qualityBusy) return;
+        _qualityBusy = true;
+        try { _qualityReport = await DataQualityService.AnalyzeAsync(); }
+        finally { _qualityBusy = false; }
     }
 
     private async Task SaveAsync()
@@ -187,7 +241,7 @@ else
         {
             _hasConflict = true;
             _hasError = true;
-            _message = "تنظیمات پس از بازشدن صفحه توسط مدیر دیگری تغییر کرده است.";
+            _message = "این مورد توسط کاربر دیگری تغییر کرده است. لطفاً آخرین اطلاعات را بارگذاری کنید.";
         }
         catch (Exception exception)
         {
@@ -202,6 +256,10 @@ else
 
     private async Task ReloadLatestAsync()
     {
+        if (!await JS.InvokeAsync<bool>("confirm", "تغییرات ذخیره‌نشده کنار گذاشته شوند؟"))
+        {
+            return;
+        }
         _settings = await SettingsService.ReloadAsync();
         _hasConflict = false;
         _hasError = false;

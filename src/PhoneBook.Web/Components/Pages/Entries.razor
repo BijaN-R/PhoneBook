@@ -1,47 +1,24 @@
-@* FILE: src/PhoneBook.Web/Components/Pages/Entries.razor *@
 @page "/entries"
 @rendermode InteractiveServer
 @attribute [Authorize(Policy = AuthorizationPolicies.AdminOnly)]
 @inject PhoneBookQueryService QueryService
 @inject EntryManagementService EntryService
+@inject IJSRuntime JS
 
 <PageTitle>مدیریت داخلی‌ها</PageTitle>
+<section class="page-heading"><div><span class="eyebrow">شماره‌های سازمانی</span><h1>داخلی‌ها</h1><p>فیلتر، ویرایش و عملیات گروهی داخلی‌ها.</p></div></section>
+<OperationFeedback Message="@_message" Kind="@(_hasError ? "error" : "success")" Blocking="@_hasError">
+    @if (_hasConflict) { <button class="button" disabled="@_busy" @onclick="ReloadAfterConflictAsync">بارگذاری مجدد</button> }
+</OperationFeedback>
 
-<section class="page-heading">
-    <div>
-        <span class="eyebrow">شماره‌های سازمانی</span>
-        <h1>داخلی‌ها</h1>
-        <p>گروه را انتخاب کنید و شماره‌ها را بدون خروج از صفحه ویرایش یا مرتب کنید.</p>
-    </div>
-    <label class="heading-select">
-        گروه جاری
-        <select @bind="_selectedGroupId" @bind:after="LoadEntriesAsync">
-            @foreach (PhoneBookGroup group in _groups)
-            {
-                <option value="@group.Id">@group.Title</option>
-            }
-        </select>
-    </label>
-</section>
-
-@if (_groups.Count == 0)
-{
-    <section class="panel empty-state">
-        <h2>هنوز گروهی وجود ندارد</h2>
-        <p>ابتدا در صفحه گروه‌ها یک گروه بسازید.</p>
-        <a class="button-link" href="groups">رفتن به گروه‌ها</a>
-    </section>
-}
+@if (_loading) { <section class="panel"><p class="muted" role="status">در حال بارگذاری…</p></section> }
+else if (_groups.Count == 0) { <section class="panel empty-state"><h2>هنوز گروهی وجود ندارد</h2><a class="button-link" href="groups">رفتن به گروه‌ها</a></section> }
 else
 {
     <section class="panel form-panel">
-        <div class="section-title">
-            <div>
-                <span class="eyebrow">داخلی تازه</span>
-                <h2>افزودن شماره</h2>
-            </div>
-        </div>
+        <div class="section-title"><div><span class="eyebrow">داخلی تازه</span><h2>افزودن شماره</h2></div></div>
         <div class="form-grid entry-form-grid">
+            <label>گروه<select @bind="_newEntry.GroupId">@foreach(var group in _groups){<option value="@group.Id">@group.Title</option>}</select></label>
             <label>نام<input placeholder="نام می‌تواند خالی باشد" @bind="_newEntry.Name" /></label>
             <label>شماره داخلی<input dir="ltr" inputmode="numeric" @bind="_newEntry.Extension" /></label>
             <label class="check-field"><input type="checkbox" @bind="_newEntry.IsActive" /> فعال</label>
@@ -50,197 +27,70 @@ else
     </section>
 
     <section class="panel table-panel">
-        <div class="section-title">
-            <div>
-                <span class="eyebrow">@PersianTextNormalizer.ToPersianDigits(_entries.Count.ToString(CultureInfo.InvariantCulture)) داخلی</span>
-                <h2>@CurrentGroupTitle</h2>
-            </div>
+        <div class="list-toolbar">
+            <label>گروه<select @bind="_groupFilter" @bind:after="FiltersChanged"><option value="0">همه گروه‌ها</option>@foreach(var group in _groups){<option value="@group.Id">@group.Title</option>}</select></label>
+            <label>وضعیت<select @bind="_activeFilter" @bind:after="FiltersChanged"><option value="all">همه</option><option value="active">فعال</option><option value="inactive">غیرفعال</option></select></label>
+            <span class="muted">@ToPersian(VisibleEntries.Count) مورد</span>
         </div>
-
-        @if (_entries.Count == 0)
-        {
-            <div class="empty-state compact">برای این گروه هنوز شماره‌ای ثبت نشده است.</div>
-        }
+        <div class="bulk-toolbar">
+            <strong>@ToPersian(_selected.Count) انتخاب‌شده</strong>
+            <button class="button" disabled="@(_busy || _selected.Count == 0)" @onclick="() => BulkStateAsync(true)">فعال‌سازی گروهی</button>
+            <button class="button" disabled="@(_busy || _selected.Count == 0)" @onclick="() => BulkStateAsync(false)">غیرفعال‌سازی گروهی</button>
+        </div>
+        @if (VisibleEntries.Count == 0) { <div class="empty-state compact">موردی با فیلترهای انتخاب‌شده پیدا نشد.</div> }
         else
         {
-            <div class="table-scroll">
-                <table>
-                    <thead>
-                        <tr>
-                            <th>نام</th>
-                            <th>داخلی</th>
-                            <th>ترتیب</th>
-                            <th>فعال</th>
-                            <th>جابجایی</th>
-                            <th>عملیات</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        @for (int index = 0; index < _entries.Count; index++)
-                        {
-                            PhoneBookEntry entry = _entries[index];
-                            int rowIndex = index;
-                            <tr @key="entry.Id">
-                                <td><input aria-label="نام" @bind="entry.Name" /></td>
-                                <td><input aria-label="شماره داخلی" dir="ltr" @bind="entry.Extension" /></td>
-                                <td><input class="number-input" type="number" min="1" @bind="entry.DisplayOrder" /></td>
-                                <td><input aria-label="فعال" type="checkbox" @bind="entry.IsActive" /></td>
-                                <td class="reorder-actions">
-                                    <button title="انتقال به بالا" disabled="@(_busy || rowIndex == 0)" @onclick="() => MoveAsync(entry, -1)">↑</button>
-                                    <button title="انتقال به پایین" disabled="@(_busy || rowIndex == _entries.Count - 1)" @onclick="() => MoveAsync(entry, 1)">↓</button>
-                                </td>
-                                <td class="row-actions">
-                                    <button class="text-button" disabled="@_busy" @onclick="() => SaveAsync(entry)">ذخیره</button>
-                                    <button class="text-button danger" disabled="@_busy" @onclick="() => DeleteAsync(entry)">حذف</button>
-                                </td>
-                            </tr>
-                        }
-                    </tbody>
-                </table>
-            </div>
+            <div class="table-scroll"><table><thead><tr>
+                <th><input type="checkbox" aria-label="انتخاب همه موارد قابل مشاهده" checked="@AllVisibleSelected" @onchange="ToggleAllVisible" /></th><th>گروه</th><th>نام</th><th>داخلی</th><th>وضعیت</th><th>ترتیب</th><th>جابجایی</th><th>عملیات</th>
+            </tr></thead><tbody>
+            @foreach (PhoneBookEntry entry in VisibleEntries)
+            {
+                IReadOnlyList<PhoneBookEntry> siblings = EntriesForGroup(entry.GroupId); int rowIndex = siblings.ToList().FindIndex(x => x.Id == entry.Id);
+                <tr @key="entry.Id">
+                    <td><input type="checkbox" aria-label="انتخاب داخلی @(string.IsNullOrWhiteSpace(entry.Name) ? entry.Extension : entry.Name)" checked="@_selected.Contains(entry.Id)" @onchange="e => ToggleSelection(entry.Id, e)" /></td>
+                    <td>@GroupTitle(entry.GroupId)</td>
+                    <td><input aria-label="نام داخلی" @bind="entry.Name" /></td>
+                    <td><input aria-label="شماره داخلی" dir="ltr" @bind="entry.Extension" /></td>
+                    <td><span class="state-badge @(entry.IsActive ? "active" : "inactive")">@(entry.IsActive ? "فعال" : "غیرفعال")</span></td>
+                    <td>@ToPersian(entry.DisplayOrder)</td>
+                    <td class="reorder-actions">
+                        <button title="ابتدا" aria-label="انتقال به ابتدا" disabled="@(_busy || rowIndex == 0)" @onclick="() => MoveBoundaryAsync(entry, true)">⇈</button>
+                        <button title="بالا" aria-label="انتقال به بالا" disabled="@(_busy || rowIndex == 0)" @onclick="() => MoveAsync(entry, -1)">↑</button>
+                        <button title="پایین" aria-label="انتقال به پایین" disabled="@(_busy || rowIndex == siblings.Count - 1)" @onclick="() => MoveAsync(entry, 1)">↓</button>
+                        <button title="انتها" aria-label="انتقال به انتها" disabled="@(_busy || rowIndex == siblings.Count - 1)" @onclick="() => MoveBoundaryAsync(entry, false)">⇊</button>
+                    </td>
+                    <td class="row-actions"><button class="text-button" disabled="@_busy" @onclick="() => SaveAsync(entry)">ذخیره</button><button class="text-button" disabled="@_busy" @onclick="() => ToggleActiveAsync(entry)">@(entry.IsActive ? "غیرفعال‌سازی" : "فعال‌سازی")</button><button class="text-button danger" disabled="@_busy" @onclick="() => DeleteAsync(entry)">حذف</button></td>
+                </tr>
+            }
+            </tbody></table></div>
         }
     </section>
 }
 
-@if (!string.IsNullOrWhiteSpace(_message))
-{
-    <p class="toast @(_hasError ? "error" : "success")">@_message</p>
-    @if (_hasConflict)
-    {
-        <button class="toast-reload" disabled="@_busy" @onclick="ReloadAfterConflictAsync">بارگذاری آخرین نسخه</button>
-    }
-}
-
 @code {
-    private readonly PhoneBookEntry _newEntry = new() { IsActive = true };
-    private IReadOnlyList<PhoneBookGroup> _groups = [];
-    private IReadOnlyList<PhoneBookEntry> _entries = [];
-    private int _selectedGroupId;
-    private bool _busy;
-    private bool _hasError;
-    private bool _hasConflict;
-    private string? _message;
-
-    private string CurrentGroupTitle => _groups
-        .FirstOrDefault(group => group.Id == _selectedGroupId)?.Title ?? "داخلی‌ها";
-
-    protected override async Task OnInitializedAsync()
-    {
-        _groups = await QueryService.GetGroupsAsync();
-        _selectedGroupId = _groups.FirstOrDefault()?.Id ?? 0;
-        await LoadEntriesAsync();
-    }
-
-    private async Task LoadEntriesAsync()
-    {
-        _entries = _selectedGroupId == 0
-            ? []
-            : await QueryService.GetEntriesAsync(_selectedGroupId);
-    }
-
-    private Task AddAsync()
-    {
-        if (_selectedGroupId == 0)
-        {
-            ShowError("ابتدا یک گروه انتخاب کنید.");
-            return Task.CompletedTask;
-        }
-
-        if (string.IsNullOrWhiteSpace(_newEntry.Name)
-            && string.IsNullOrWhiteSpace(_newEntry.Extension))
-        {
-            ShowError("نام یا شماره داخلی را وارد کنید.");
-            return Task.CompletedTask;
-        }
-
-        return RunMutationAsync(async () =>
-        {
-            _newEntry.GroupId = _selectedGroupId;
-            await EntryService.CreateEntryAsync(_newEntry);
-            _newEntry.Name = string.Empty;
-            _newEntry.Extension = null;
-            _newEntry.DisplayOrder = 0;
-            await RefreshAndReloadAsync();
-        }, "داخلی افزوده شد.");
-    }
-
-    private Task SaveAsync(PhoneBookEntry entry)
-    {
-        return RunMutationAsync(async () =>
-        {
-            await EntryService.UpdateEntryAsync(EntryUpdateModel.FromEntity(entry));
-            await RefreshAndReloadAsync();
-        }, "تغییرات داخلی ذخیره شد.");
-    }
-
-    private Task DeleteAsync(PhoneBookEntry entry)
-    {
-        return RunMutationAsync(async () =>
-        {
-            await EntryService.DeleteEntryAsync(entry.Id, entry.Revision);
-            await RefreshAndReloadAsync();
-        }, "داخلی حذف شد.");
-    }
-
-    private Task MoveAsync(PhoneBookEntry entry, int offset)
-    {
-        return RunMutationAsync(async () =>
-        {
-            await EntryService.MoveEntryAsync(entry.Id, entry.Revision, offset);
-            await RefreshAndReloadAsync();
-        }, "ترتیب داخلی‌ها تغییر کرد.");
-    }
-
-    private async Task RefreshAndReloadAsync()
-    {
-        await LoadEntriesAsync();
-    }
-
-    private async Task RunMutationAsync(Func<Task> mutation, string successMessage)
-    {
-        if (_busy)
-        {
-            return;
-        }
-
-        _busy = true;
-        _message = null;
-        _hasConflict = false;
-        try
-        {
-            await mutation();
-            _hasError = false;
-            _message = successMessage;
-        }
-        catch (ConcurrencyConflictException)
-        {
-            _hasConflict = true;
-            ShowError("این داخلی یا ترتیب آن پس از بازشدن صفحه توسط مدیر دیگری تغییر کرده است.");
-        }
-        catch (OrderingConflictException)
-        {
-            ShowError("ترتیب داخلی هم‌زمان توسط مدیر دیگری استفاده شد؛ دوباره تلاش کنید.");
-        }
-        catch (Exception exception)
-        {
-            ShowError(exception.Message);
-        }
-        finally
-        {
-            _busy = false;
-        }
-    }
-
-    private async Task ReloadAfterConflictAsync()
-    {
-        _hasConflict = false;
-        _message = null;
-        await LoadEntriesAsync();
-    }
-
-    private void ShowError(string message)
-    {
-        _hasError = true;
-        _message = message;
-    }
+    private readonly PhoneBookEntry _newEntry = new() { IsActive=true };
+    private IReadOnlyList<PhoneBookGroup> _groups=[]; private IReadOnlyList<PhoneBookEntry> _entries=[];
+    private readonly HashSet<int> _selected=[]; private int _groupFilter; private string _activeFilter="all";
+    private bool _loading=true, _busy, _hasError, _hasConflict; private string? _message;
+    private IReadOnlyList<PhoneBookEntry> VisibleEntries => _entries.Where(x => (_groupFilter==0 || x.GroupId==_groupFilter) && (_activeFilter=="all" || x.IsActive==(_activeFilter=="active"))).ToArray();
+    private bool AllVisibleSelected => VisibleEntries.Count>0 && VisibleEntries.All(x => _selected.Contains(x.Id));
+    protected override async Task OnInitializedAsync(){await ReloadAsync(); _newEntry.GroupId=_groups.FirstOrDefault()?.Id??0; _loading=false;}
+    private async Task ReloadAsync(){_groups=await QueryService.GetGroupsAsync(); _entries=_groups.SelectMany(g=>g.Entries).OrderBy(e=>e.GroupId).ThenBy(e=>e.DisplayOrder).ToArray(); TrimSelection();}
+    private void FiltersChanged()=>TrimSelection();
+    private void TrimSelection(){var visible=VisibleEntries.Select(x=>x.Id).ToHashSet(); _selected.RemoveWhere(id=>!visible.Contains(id));}
+    private void ToggleSelection(int id, ChangeEventArgs e){if(e.Value is true) _selected.Add(id); else _selected.Remove(id);}
+    private void ToggleAllVisible(ChangeEventArgs e){if(e.Value is true) foreach(var x in VisibleEntries)_selected.Add(x.Id); else foreach(var x in VisibleEntries)_selected.Remove(x.Id);}
+    private async Task AddAsync(){if(_newEntry.GroupId==0 || (string.IsNullOrWhiteSpace(_newEntry.Name)&&string.IsNullOrWhiteSpace(_newEntry.Extension))){ShowError("گروه و نام یا شماره داخلی را وارد کنید.");return;} await RunAsync(async()=>{await EntryService.CreateEntryAsync(_newEntry);_newEntry.Name="";_newEntry.Extension=null;await ReloadAsync();},"داخلی افزوده شد.");}
+    private Task SaveAsync(PhoneBookEntry entry)=>RunAsync(async()=>{await EntryService.UpdateEntryAsync(EntryUpdateModel.FromEntity(entry));await ReloadAsync();},"تغییرات داخلی ذخیره شد.");
+    private Task ToggleActiveAsync(PhoneBookEntry entry)=>RunAsync(async()=>{entry.IsActive=!entry.IsActive;await EntryService.UpdateEntryAsync(EntryUpdateModel.FromEntity(entry));await ReloadAsync();},entry.IsActive?"داخلی غیرفعال شد.":"داخلی فعال شد.");
+    private Task MoveAsync(PhoneBookEntry entry,int offset)=>RunAsync(async()=>{await EntryService.MoveEntryAsync(entry.Id,entry.Revision,offset);await ReloadAsync();},"ترتیب داخلی‌ها تغییر کرد.");
+    private Task MoveBoundaryAsync(PhoneBookEntry entry,bool top)=>RunAsync(async()=>{await EntryService.MoveEntryToBoundaryAsync(entry.Id,entry.Revision,top);await ReloadAsync();},"ترتیب داخلی‌ها تغییر کرد.");
+    private async Task BulkStateAsync(bool active){var changes=VisibleEntries.Where(x=>_selected.Contains(x.Id)).Select(x=>new EntryStateChange(x.Id,x.Revision)).ToArray();await RunAsync(async()=>{await EntryService.SetActiveStateAsync(changes,active);_selected.Clear();await ReloadAsync();},active?"موارد انتخاب‌شده فعال شدند.":"موارد انتخاب‌شده غیرفعال شدند.");}
+    private async Task DeleteAsync(PhoneBookEntry entry){string name=string.IsNullOrWhiteSpace(entry.Name)?entry.Extension??"داخلی":entry.Name;if(!await JS.InvokeAsync<bool>("confirm",$"آیا از حذف «{name}» مطمئن هستید؟ این عملیات قابل بازگشت نیست."))return;await RunAsync(async()=>{await EntryService.DeleteEntryAsync(entry.Id,entry.Revision);_selected.Remove(entry.Id);await ReloadAsync();},"داخلی حذف شد.");}
+    private async Task RunAsync(Func<Task> action,string success){if(_busy)return;_busy=true;_message=null;_hasConflict=false;try{await action();_hasError=false;_message=success;}catch(ConcurrencyConflictException){_hasConflict=true;ShowError("این مورد توسط کاربر دیگری تغییر کرده است. لطفاً آخرین اطلاعات را بارگذاری کنید.");}catch(Exception ex){ShowError(ex.Message);}finally{_busy=false;}}
+    private async Task ReloadAfterConflictAsync(){if(await JS.InvokeAsync<bool>("confirm","تغییرات ذخیره‌نشده کنار گذاشته شوند؟")){await ReloadAsync();_hasConflict=false;_message=null;}}
+    private IReadOnlyList<PhoneBookEntry> EntriesForGroup(int id)=>_entries.Where(x=>x.GroupId==id).OrderBy(x=>x.DisplayOrder).ToArray();
+    private string GroupTitle(int id)=>_groups.First(x=>x.Id==id).Title;
+    private void ShowError(string value){_hasError=true;_message=value;}
+    private static string ToPersian(int value)=>PersianTextNormalizer.ToPersianDigits(value.ToString(CultureInfo.InvariantCulture));
 }

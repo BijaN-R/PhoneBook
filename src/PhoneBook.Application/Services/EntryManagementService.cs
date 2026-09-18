@@ -108,6 +108,31 @@ public sealed class EntryManagementService(
         await searchService.RefreshAsync(ct);
     }
 
+    public async Task MoveEntryToBoundaryAsync(
+        int entryId,
+        long expectedRevision,
+        bool toTop,
+        CancellationToken ct = default)
+    {
+        await using IAsyncDisposable lease = await dataLock.AcquireAsync(ct);
+        PhoneBookEntry entry = await repository.GetEntryAsync(entryId, ct)
+            ?? throw new ConcurrencyConflictException("The entry was deleted.");
+        IReadOnlyList<PhoneBookEntry> entries = await repository.GetEntriesAsync(entry.GroupId, false, ct);
+        await repository.ReorderEntryAsync(entryId, expectedRevision, toTop ? 0 : entries.Count - 1, ct);
+        await searchService.RefreshAsync(ct);
+    }
+
+    public async Task SetActiveStateAsync(
+        IReadOnlyList<EntryStateChange> entries,
+        bool isActive,
+        CancellationToken ct = default)
+    {
+        ArgumentNullException.ThrowIfNull(entries);
+        await using IAsyncDisposable lease = await dataLock.AcquireAsync(ct);
+        await repository.SetEntriesActiveStateAsync(entries, isActive, ct);
+        await searchService.RefreshAsync(ct);
+    }
+
     private static PhoneBookEntry Copy(PhoneBookEntry source)
     {
         return new PhoneBookEntry
