@@ -1,8 +1,9 @@
 @* FILE: src/PhoneBook.Web/Components/Pages/Groups.razor *@
 @page "/groups"
 @rendermode InteractiveServer
-@inject PhoneBookRepository Repository
-@inject LiveSearchService SearchService
+@inject PhoneBookQueryService QueryService
+@inject GroupManagementService GroupService
+@inject PhoneBookSearchService SearchService
 
 <PageTitle>مدیریت گروه‌ها</PageTitle>
 
@@ -124,7 +125,7 @@
 
         await RunMutationAsync(async () =>
         {
-            await Repository.AddGroupAsync(_newGroup);
+            await GroupService.CreateGroupAsync(_newGroup);
             _newGroup.Title = string.Empty;
             _newGroup.Priority = 0;
             _newGroup.DisplayOrder = 0;
@@ -137,7 +138,7 @@
     {
         return RunMutationAsync(async () =>
         {
-            await Repository.UpdateGroupAsync(group);
+            await GroupService.UpdateGroupAsync(group);
             await RefreshAndReloadAsync();
         }, "تغییرات گروه ذخیره شد.");
     }
@@ -146,7 +147,7 @@
     {
         return RunMutationAsync(async () =>
         {
-            await Repository.DeleteGroupAsync(id);
+            await GroupService.DeleteGroupAsync(id);
             await RefreshAndReloadAsync();
         }, "گروه و داخلی‌های آن حذف شدند.");
     }
@@ -159,7 +160,7 @@
 
     private async Task ReloadAsync()
     {
-        _groups = await Repository.GetGroupsAsync();
+        _groups = await QueryService.GetGroupsAsync();
     }
 
     private async Task RunMutationAsync(Func<Task> mutation, string successMessage)

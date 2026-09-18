@@ -2,11 +2,8 @@
 @page "/"
 @rendermode InteractiveServer
 @implements IDisposable
-@inject LiveSearchService SearchService
-@inject PhoneBookRepository Repository
-@inject AppSettingsService SettingsService
-@inject LayoutEngine LayoutEngine
-@inject ITextMeasurer TextMeasurer
+@inject PhoneBookSearchService SearchService
+@inject PhoneBookDocumentService DocumentService
 @inject OpenXmlPhoneBookGenerator OpenXmlGenerator
 @inject SkiaExportService ImageExportService
 @inject IJSRuntime JS
@@ -146,11 +143,12 @@
     {
         try
         {
-            _exportGroups = await Repository.GetGroupsAsync(activeOnly: true);
-            _groups = _exportGroups;
-            _header = await Repository.GetDocumentHeaderAsync();
-            _settings = await SettingsService.GetAsync();
-            _layout = LayoutEngine.CreateLayout(_exportGroups, _settings, TextMeasurer);
+            PhoneBookDocument document = await DocumentService.PrepareAsync();
+            _exportGroups = document.Groups;
+            _groups = document.Groups;
+            _header = document.Header;
+            _settings = document.Settings;
+            _layout = document.Layout;
             ApplyFilters();
         }
         catch (Exception exception)

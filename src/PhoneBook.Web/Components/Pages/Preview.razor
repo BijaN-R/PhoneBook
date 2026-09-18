@@ -1,10 +1,7 @@
 @* FILE: src/PhoneBook.Web/Components/Pages/Preview.razor *@
 @page "/preview"
 @rendermode InteractiveServer
-@inject PhoneBookRepository Repository
-@inject AppSettingsService SettingsService
-@inject LayoutEngine LayoutEngine
-@inject ITextMeasurer TextMeasurer
+@inject PhoneBookDocumentService DocumentService
 
 <PageTitle>پیش‌نمایش دفترچه</PageTitle>
 
@@ -89,10 +86,10 @@ else if (_layout is not null && _settings is not null && _header is not null)
         _error = null;
         try
         {
-            IReadOnlyList<PhoneBookGroup> groups = await Repository.GetGroupsAsync(activeOnly: true);
-            _settings = await SettingsService.GetAsync();
-            _header = await Repository.GetDocumentHeaderAsync();
-            _layout = LayoutEngine.CreateLayout(groups, _settings, TextMeasurer);
+            PhoneBookDocument document = await DocumentService.PrepareAsync();
+            _settings = document.Settings;
+            _header = document.Header;
+            _layout = document.Layout;
             if (_layout.LayoutFailed)
             {
                 _error = _layout.FailureReason ?? "چیدمان با تنظیمات فعلی ممکن نیست.";

@@ -1,12 +1,11 @@
 // FILE: src/PhoneBook.Web/Program.cs
 using Microsoft.Data.Sqlite;
-using Microsoft.EntityFrameworkCore;
+using PhoneBook.Application.Services;
 using PhoneBook.Core.Layout;
 using PhoneBook.Export.Image.Skia;
 using PhoneBook.Export.OpenXml.OpenXml;
-using PhoneBook.Infrastructure.Data;
+using PhoneBook.Infrastructure;
 using PhoneBook.Web.Components;
-using PhoneBook.Web.Services;
 
 WebApplicationBuilder builder = WebApplication.CreateBuilder(args);
 builder.Logging.ClearProviders();
@@ -31,14 +30,17 @@ string fontsPath = Path.IsPathRooted(configuredFontsPath)
 builder.Services
     .AddRazorComponents()
     .AddInteractiveServerComponents();
-builder.Services.AddDbContextFactory<AppDbContext>(options => options.UseSqlite(connectionString));
+builder.Services.AddPhoneBookInfrastructure(connectionString);
 
 builder.Services.AddSingleton(_ => new FontProvider(fontsPath));
 builder.Services.AddSingleton<ITextMeasurer, SkiaTextMeasurer>();
 builder.Services.AddSingleton<LayoutEngine>();
-builder.Services.AddSingleton<AppSettingsService>();
-builder.Services.AddSingleton<PhoneBookRepository>();
-builder.Services.AddSingleton<LiveSearchService>();
+builder.Services.AddSingleton<PhoneBookQueryService>();
+builder.Services.AddSingleton<GroupManagementService>();
+builder.Services.AddSingleton<EntryManagementService>();
+builder.Services.AddSingleton<SettingsService>();
+builder.Services.AddSingleton<PhoneBookSearchService>();
+builder.Services.AddSingleton<PhoneBookDocumentService>();
 builder.Services.AddSingleton(serviceProvider => new OpenXmlPhoneBookGenerator(
     serviceProvider.GetRequiredService<ITextMeasurer>(),
     fontsPath));
@@ -55,7 +57,7 @@ app.UseAntiforgery();
 
 try
 {
-    await app.Services.GetRequiredService<LiveSearchService>().RefreshAsync();
+    await app.Services.GetRequiredService<PhoneBookSearchService>().RefreshAsync();
 }
 catch (Exception exception) when (exception is SqliteException or InvalidOperationException)
 {

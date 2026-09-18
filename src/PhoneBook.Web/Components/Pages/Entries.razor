@@ -1,8 +1,9 @@
 @* FILE: src/PhoneBook.Web/Components/Pages/Entries.razor *@
 @page "/entries"
 @rendermode InteractiveServer
-@inject PhoneBookRepository Repository
-@inject LiveSearchService SearchService
+@inject PhoneBookQueryService QueryService
+@inject EntryManagementService EntryService
+@inject PhoneBookSearchService SearchService
 
 <PageTitle>مدیریت داخلی‌ها</PageTitle>
 
@@ -120,7 +121,7 @@ else
 
     protected override async Task OnInitializedAsync()
     {
-        _groups = await Repository.GetGroupsAsync();
+        _groups = await QueryService.GetGroupsAsync();
         _selectedGroupId = _groups.FirstOrDefault()?.Id ?? 0;
         await LoadEntriesAsync();
     }
@@ -129,7 +130,7 @@ else
     {
         _entries = _selectedGroupId == 0
             ? []
-            : await Repository.GetEntriesAsync(_selectedGroupId);
+            : await QueryService.GetEntriesAsync(_selectedGroupId);
     }
 
     private Task AddAsync()
@@ -150,7 +151,7 @@ else
         return RunMutationAsync(async () =>
         {
             _newEntry.GroupId = _selectedGroupId;
-            await Repository.AddEntryAsync(_newEntry);
+            await EntryService.CreateEntryAsync(_newEntry);
             _newEntry.Name = string.Empty;
             _newEntry.Extension = null;
             _newEntry.DisplayOrder = 0;
@@ -162,7 +163,7 @@ else
     {
         return RunMutationAsync(async () =>
         {
-            await Repository.UpdateEntryAsync(entry);
+            await EntryService.UpdateEntryAsync(entry);
             await RefreshAndReloadAsync();
         }, "تغییرات داخلی ذخیره شد.");
     }
@@ -171,7 +172,7 @@ else
     {
         return RunMutationAsync(async () =>
         {
-            await Repository.DeleteEntryAsync(id);
+            await EntryService.DeleteEntryAsync(id);
             await RefreshAndReloadAsync();
         }, "داخلی حذف شد.");
     }
@@ -180,7 +181,7 @@ else
     {
         return RunMutationAsync(async () =>
         {
-            await Repository.MoveEntryAsync(id, offset);
+            await EntryService.MoveEntryAsync(id, offset);
             await RefreshAndReloadAsync();
         }, "ترتیب داخلی‌ها تغییر کرد.");
     }

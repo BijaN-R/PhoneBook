@@ -1,41 +1,32 @@
-// FILE: src/PhoneBook.Web/Services/LiveSearchService.cs
-using Microsoft.EntityFrameworkCore;
+using PhoneBook.Application.Abstractions.Persistence;
+using PhoneBook.Application.Models;
 using PhoneBook.Core.Text;
-using PhoneBook.Infrastructure.Data;
 
-namespace PhoneBook.Web.Services;
+namespace PhoneBook.Application.Services;
 
-public sealed record SearchHit(
-    int GroupId,
-    string GroupTitle,
-    string Name,
-    string? Extension);
-
-public sealed class LiveSearchService(IDbContextFactory<AppDbContext> contextFactory)
+public sealed class PhoneBookSearchService(IPhoneBookRepository repository)
 {
     private readonly object _sync = new();
     private IndexedHit[] _index = [];
 
     public async Task RefreshAsync(CancellationToken ct = default)
     {
-        await using AppDbContext context = await contextFactory.CreateDbContextAsync(ct);
-        IndexedHit[] refreshed = await context.PhoneBookEntries
-            .AsNoTracking()
-            .Where(entry => entry.IsActive && entry.Group.IsActive)
-            .OrderBy(entry => entry.Group.DisplayOrder)
-            .ThenBy(entry => entry.DisplayOrder)
-            .Select(entry => new SearchHit(
-                entry.GroupId,
-                entry.Group.Title,
-                entry.Name,
-                entry.Extension))
-            .AsAsyncEnumerable()
-            .Select(hit => new IndexedHit(
-                hit,
-                PersianTextNormalizer.NormalizeForSearch(hit.GroupTitle),
-                PersianTextNormalizer.NormalizeForSearch(hit.Name),
-                PersianTextNormalizer.NormalizeForSearch(hit.Extension ?? string.Empty)))
-            .ToArrayAsync(ct);
+        IReadOnlyList<PhoneBookSearchRecord> records = await repository.GetActiveSearchRecordsAsync(ct);
+        IndexedHit[] refreshed = records
+            .Select(record =>
+            {
+                SearchHit hit = new(
+                    record.GroupId,
+                    record.GroupTitle,
+                    record.Name,
+                    record.Extension);
+                return new IndexedHit(
+                    hit,
+                    PersianTextNormalizer.NormalizeForSearch(hit.GroupTitle),
+                    PersianTextNormalizer.NormalizeForSearch(hit.Name),
+                    PersianTextNormalizer.NormalizeForSearch(hit.Extension ?? string.Empty));
+            })
+            .ToArray();
 
         lock (_sync)
         {

@@ -1,11 +1,13 @@
-// FILE: src/PhoneBook.Web/Services/PhoneBookRepository.cs
 using Microsoft.EntityFrameworkCore;
+using PhoneBook.Application.Abstractions.Persistence;
+using PhoneBook.Application.Models;
 using PhoneBook.Domain.Entities;
 using PhoneBook.Infrastructure.Data;
 
-namespace PhoneBook.Web.Services;
+namespace PhoneBook.Infrastructure.Persistence;
 
-public sealed class PhoneBookRepository(IDbContextFactory<AppDbContext> contextFactory)
+public sealed class EfPhoneBookRepository(IDbContextFactory<AppDbContext> contextFactory)
+    : IPhoneBookRepository
 {
     public async Task<DocumentHeader> GetDocumentHeaderAsync(CancellationToken ct = default)
     {
@@ -54,7 +56,57 @@ public sealed class PhoneBookRepository(IDbContextFactory<AppDbContext> contextF
             .SingleOrDefaultAsync(group => group.Id == id, ct);
     }
 
-    public async Task<PhoneBookGroup> AddGroupAsync(
+    public async Task<IReadOnlyList<PhoneBookEntry>> GetEntriesAsync(
+        int groupId,
+        bool activeOnly = false,
+        CancellationToken ct = default)
+    {
+        await using AppDbContext context = await contextFactory.CreateDbContextAsync(ct);
+        IQueryable<PhoneBookEntry> query = context.PhoneBookEntries
+            .AsNoTracking()
+            .Where(entry => entry.GroupId == groupId);
+        if (activeOnly)
+        {
+            query = query.Where(entry => entry.IsActive);
+        }
+
+        return await query
+            .OrderBy(entry => entry.DisplayOrder)
+            .ThenBy(entry => entry.Id)
+            .ToListAsync(ct);
+    }
+
+    public async Task<PhoneBookEntry?> GetEntryAsync(int id, CancellationToken ct = default)
+    {
+        await using AppDbContext context = await contextFactory.CreateDbContextAsync(ct);
+        return await context.PhoneBookEntries
+            .AsNoTracking()
+            .SingleOrDefaultAsync(entry => entry.Id == id, ct);
+    }
+
+    public async Task<int> GetMaximumGroupDisplayOrderAsync(CancellationToken ct = default)
+    {
+        await using AppDbContext context = await contextFactory.CreateDbContextAsync(ct);
+        return await context.PhoneBookGroups.MaxAsync(group => (int?)group.DisplayOrder, ct) ?? 0;
+    }
+
+    public async Task<int> GetMaximumGroupPriorityAsync(CancellationToken ct = default)
+    {
+        await using AppDbContext context = await contextFactory.CreateDbContextAsync(ct);
+        return await context.PhoneBookGroups.MaxAsync(group => (int?)group.Priority, ct) ?? 0;
+    }
+
+    public async Task<int> GetMaximumEntryDisplayOrderAsync(
+        int groupId,
+        CancellationToken ct = default)
+    {
+        await using AppDbContext context = await contextFactory.CreateDbContextAsync(ct);
+        return await context.PhoneBookEntries
+            .Where(entry => entry.GroupId == groupId)
+            .MaxAsync(entry => (int?)entry.DisplayOrder, ct) ?? 0;
+    }
+
+    public async Task<PhoneBookGroup> InsertGroupAsync(
         PhoneBookGroup group,
         CancellationToken ct = default)
     {
@@ -62,20 +114,6 @@ public sealed class PhoneBookRepository(IDbContextFactory<AppDbContext> contextF
 
         await using AppDbContext context = await contextFactory.CreateDbContextAsync(ct);
         PhoneBookGroup created = CopyGroup(group);
-        if (created.DisplayOrder <= 0)
-        {
-            created.DisplayOrder = (await context.PhoneBookGroups.MaxAsync(
-                item => (int?)item.DisplayOrder,
-                ct) ?? 0) + 1;
-        }
-
-        if (created.Priority <= 0)
-        {
-            created.Priority = (await context.PhoneBookGroups.MaxAsync(
-                item => (int?)item.Priority,
-                ct) ?? 0) + 1;
-        }
-
         context.PhoneBookGroups.Add(created);
         await context.SaveChangesAsync(ct);
         return created;
@@ -90,7 +128,7 @@ public sealed class PhoneBookRepository(IDbContextFactory<AppDbContext> contextF
             item => item.Id == group.Id,
             ct) ?? throw new KeyNotFoundException($"Group {group.Id} was not found.");
 
-        existing.Title = group.Title.Trim();
+        existing.Title = group.Title;
         existing.Priority = group.Priority;
         existing.PreferredColumn = group.PreferredColumn;
         existing.DisplayOrder = group.DisplayOrder;
@@ -115,49 +153,14 @@ public sealed class PhoneBookRepository(IDbContextFactory<AppDbContext> contextF
         await context.SaveChangesAsync(ct);
     }
 
-    public async Task<IReadOnlyList<PhoneBookEntry>> GetEntriesAsync(
-        int groupId,
-        bool activeOnly = false,
-        CancellationToken ct = default)
-    {
-        await using AppDbContext context = await contextFactory.CreateDbContextAsync(ct);
-        IQueryable<PhoneBookEntry> query = context.PhoneBookEntries
-            .AsNoTracking()
-            .Where(entry => entry.GroupId == groupId);
-        if (activeOnly)
-        {
-            query = query.Where(entry => entry.IsActive);
-        }
-
-        return await query
-            .OrderBy(entry => entry.DisplayOrder)
-            .ThenBy(entry => entry.Id)
-            .ToListAsync(ct);
-    }
-
-    public async Task<PhoneBookEntry> AddEntryAsync(
+    public async Task<PhoneBookEntry> InsertEntryAsync(
         PhoneBookEntry entry,
         CancellationToken ct = default)
     {
         ArgumentNullException.ThrowIfNull(entry);
 
         await using AppDbContext context = await contextFactory.CreateDbContextAsync(ct);
-        bool groupExists = await context.PhoneBookGroups.AnyAsync(
-            group => group.Id == entry.GroupId,
-            ct);
-        if (!groupExists)
-        {
-            throw new KeyNotFoundException($"Group {entry.GroupId} was not found.");
-        }
-
         PhoneBookEntry created = CopyEntry(entry);
-        if (created.DisplayOrder <= 0)
-        {
-            created.DisplayOrder = (await context.PhoneBookEntries
-                .Where(item => item.GroupId == created.GroupId)
-                .MaxAsync(item => (int?)item.DisplayOrder, ct) ?? 0) + 1;
-        }
-
         context.PhoneBookEntries.Add(created);
         await context.SaveChangesAsync(ct);
         return created;
@@ -172,8 +175,8 @@ public sealed class PhoneBookRepository(IDbContextFactory<AppDbContext> contextF
             item => item.Id == entry.Id,
             ct) ?? throw new KeyNotFoundException($"Entry {entry.Id} was not found.");
 
-        existing.Name = entry.Name.Trim();
-        existing.Extension = string.IsNullOrWhiteSpace(entry.Extension) ? null : entry.Extension.Trim();
+        existing.Name = entry.Name;
+        existing.Extension = entry.Extension;
         existing.DisplayOrder = entry.DisplayOrder;
         existing.IsActive = entry.IsActive;
         await context.SaveChangesAsync(ct);
@@ -194,49 +197,62 @@ public sealed class PhoneBookRepository(IDbContextFactory<AppDbContext> contextF
         await context.SaveChangesAsync(ct);
     }
 
-    public async Task MoveEntryAsync(int entryId, int offset, CancellationToken ct = default)
+    public async Task SwapEntryDisplayOrdersAsync(
+        int firstEntryId,
+        int secondEntryId,
+        CancellationToken ct = default)
     {
-        if (offset is not (-1 or 1))
-        {
-            throw new ArgumentOutOfRangeException(nameof(offset), "Offset must be -1 or 1.");
-        }
-
         await using AppDbContext context = await contextFactory.CreateDbContextAsync(ct);
-        PhoneBookEntry moving = await context.PhoneBookEntries.SingleOrDefaultAsync(
-            item => item.Id == entryId,
-            ct) ?? throw new KeyNotFoundException($"Entry {entryId} was not found.");
-        List<PhoneBookEntry> ordered = await context.PhoneBookEntries
-            .Where(item => item.GroupId == moving.GroupId)
-            .OrderBy(item => item.DisplayOrder)
-            .ThenBy(item => item.Id)
-            .ToListAsync(ct);
-        int currentIndex = ordered.FindIndex(item => item.Id == entryId);
-        int targetIndex = currentIndex + offset;
-        if (currentIndex < 0 || targetIndex < 0 || targetIndex >= ordered.Count)
+        PhoneBookEntry first = await context.PhoneBookEntries.SingleOrDefaultAsync(
+            entry => entry.Id == firstEntryId,
+            ct) ?? throw new KeyNotFoundException($"Entry {firstEntryId} was not found.");
+        PhoneBookEntry second = await context.PhoneBookEntries.SingleOrDefaultAsync(
+            entry => entry.Id == secondEntryId,
+            ct) ?? throw new KeyNotFoundException($"Entry {secondEntryId} was not found.");
+
+        if (first.GroupId != second.GroupId)
         {
-            return;
+            throw new InvalidOperationException("Only entries in the same group can exchange display order.");
         }
 
-        PhoneBookEntry neighbor = ordered[targetIndex];
-        int movingOrder = moving.DisplayOrder;
-        int neighborOrder = neighbor.DisplayOrder;
-        int temporaryOrder = ordered.Max(item => item.DisplayOrder) + 1;
+        int firstOrder = first.DisplayOrder;
+        int secondOrder = second.DisplayOrder;
+        int temporaryOrder = (await context.PhoneBookEntries
+            .Where(entry => entry.GroupId == first.GroupId)
+            .MaxAsync(entry => (int?)entry.DisplayOrder, ct) ?? 0) + 1;
 
         await using var transaction = await context.Database.BeginTransactionAsync(ct);
-        moving.DisplayOrder = temporaryOrder;
+        first.DisplayOrder = temporaryOrder;
         await context.SaveChangesAsync(ct);
-        neighbor.DisplayOrder = movingOrder;
+        second.DisplayOrder = firstOrder;
         await context.SaveChangesAsync(ct);
-        moving.DisplayOrder = neighborOrder;
+        first.DisplayOrder = secondOrder;
         await context.SaveChangesAsync(ct);
         await transaction.CommitAsync(ct);
+    }
+
+    public async Task<IReadOnlyList<PhoneBookSearchRecord>> GetActiveSearchRecordsAsync(
+        CancellationToken ct = default)
+    {
+        await using AppDbContext context = await contextFactory.CreateDbContextAsync(ct);
+        return await context.PhoneBookEntries
+            .AsNoTracking()
+            .Where(entry => entry.IsActive && entry.Group.IsActive)
+            .OrderBy(entry => entry.Group.DisplayOrder)
+            .ThenBy(entry => entry.DisplayOrder)
+            .Select(entry => new PhoneBookSearchRecord(
+                entry.GroupId,
+                entry.Group.Title,
+                entry.Name,
+                entry.Extension))
+            .ToListAsync(ct);
     }
 
     private static PhoneBookGroup CopyGroup(PhoneBookGroup source)
     {
         return new PhoneBookGroup
         {
-            Title = source.Title.Trim(),
+            Title = source.Title,
             Priority = source.Priority,
             PreferredColumn = source.PreferredColumn,
             DisplayOrder = source.DisplayOrder,
@@ -251,8 +267,8 @@ public sealed class PhoneBookRepository(IDbContextFactory<AppDbContext> contextF
         return new PhoneBookEntry
         {
             GroupId = source.GroupId,
-            Name = source.Name.Trim(),
-            Extension = string.IsNullOrWhiteSpace(source.Extension) ? null : source.Extension.Trim(),
+            Name = source.Name,
+            Extension = source.Extension,
             DisplayOrder = source.DisplayOrder,
             IsActive = source.IsActive
         };
